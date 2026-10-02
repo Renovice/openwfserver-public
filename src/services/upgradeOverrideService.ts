@@ -19,7 +19,7 @@ interface IUpgradeOverrideDocument {
     upgrades: Record<string, IUpgradeOverride>;
 }
 
-export interface IGenericServerOverride {
+interface IGenericServerOverride {
     dataset: string;
     path: TPathSegment[];
     values: Record<string, unknown>;
@@ -42,7 +42,7 @@ interface IMetadataPatchManifest {
     };
 }
 
-export interface IServerMetadataPatch {
+interface IServerMetadataPatch {
     directory: string;
     manifest: IMetadataPatchManifest;
     upgradeDefinitions?: IUpgradeOverrideDocument;
@@ -57,9 +57,9 @@ const forbiddenObjectKeys = new Set(["__proto__", "prototype", "constructor"]);
 const patchIdPattern = /^[a-z0-9][a-z0-9._-]{2,127}$/;
 const datasetPattern = /^Export[A-Za-z0-9]+$/;
 
-export const metadataPatchRoot = path.join(repoDir, "Metadata Patches");
-export const enabledMetadataPatchPath = path.join(metadataPatchRoot, "Enabled");
-export const disabledMetadataPatchPath = path.join(metadataPatchRoot, "Disabled");
+const metadataPatchRoot = path.join(repoDir, "Metadata Patches");
+const enabledMetadataPatchPath = path.join(metadataPatchRoot, "Enabled");
+const disabledMetadataPatchPath = path.join(metadataPatchRoot, "Disabled");
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
     typeof value == "object" && value != null && !Array.isArray(value);
@@ -90,7 +90,7 @@ const validateJsonValue = (value: unknown, context: string): void => {
 
 const jsonKind = (value: unknown): string => (value === null ? "null" : Array.isArray(value) ? "array" : typeof value);
 
-export const validateUpgradeOverrideDocument = (raw: unknown): IUpgradeOverrideDocument => {
+const validateUpgradeOverrideDocument = (raw: unknown): IUpgradeOverrideDocument => {
     if (!isRecord(raw) || raw.schemaVersion !== 1 || !isRecord(raw.upgrades)) {
         throw new Error("upgrade-definitions.json must contain schemaVersion=1 and an upgrades object");
     }
@@ -155,7 +155,7 @@ const resolveDatasetTarget = (
     return current;
 };
 
-export const validateServerDefinitionDocument = (raw: unknown): IServerDefinitionDocument => {
+const validateServerDefinitionDocument = (raw: unknown): IServerDefinitionDocument => {
     if (!isRecord(raw) || raw.schemaVersion !== 1 || !Array.isArray(raw.overrides)) {
         throw new Error("server-definitions.json must contain schemaVersion=1 and an overrides array");
     }
@@ -209,7 +209,7 @@ export const validateServerDefinitionDocument = (raw: unknown): IServerDefinitio
     return { schemaVersion: 1, overrides };
 };
 
-export const validateMetadataPatchManifest = (raw: unknown): IMetadataPatchManifest => {
+const validateMetadataPatchManifest = (raw: unknown): IMetadataPatchManifest => {
     if (!isRecord(raw)) throw new Error("patch.json must contain an object");
     assertOnlyKeys(raw, manifestKeys, "patch.json");
     if (raw.schemaVersion !== 1) throw new Error("patch.json must use schemaVersion=1");
@@ -254,7 +254,7 @@ const parseJsonFile = (file: string): unknown => {
     }
 };
 
-export const loadUpgradeMetadataPatchPlan = (enabledRoot = enabledMetadataPatchPath): IServerMetadataPatch[] => {
+const loadUpgradeMetadataPatchPlan = (enabledRoot = enabledMetadataPatchPath): IServerMetadataPatch[] => {
     if (!fs.existsSync(enabledRoot)) return [];
     const packageDirectories = fs
         .readdirSync(enabledRoot, { withFileTypes: true })
@@ -288,7 +288,7 @@ export const loadUpgradeMetadataPatchPlan = (enabledRoot = enabledMetadataPatchP
 const ownershipKey = (dataset: string, entryPath: TPathSegment[], field: string): string =>
     `${dataset}\u0000${JSON.stringify(entryPath)}\u0000${field}`;
 
-export const validateUpgradeMetadataPatchPlan = (patches: IServerMetadataPatch[]): IServerMetadataPatch[] => {
+const validateUpgradeMetadataPatchPlan = (patches: IServerMetadataPatch[]): IServerMetadataPatch[] => {
     const manifestIds = new Map<string, string>();
     const owners = new Map<string, string>();
     const claim = (key: string, owner: string, description: string): void => {
@@ -329,7 +329,7 @@ export const validateUpgradeMetadataPatchPlan = (patches: IServerMetadataPatch[]
     return patches;
 };
 
-export const applyServerMetadataPatchPlan = (patches: IServerMetadataPatch[], logPatches = false): number => {
+const applyServerMetadataPatchPlan = (patches: IServerMetadataPatch[], logPatches = false): number => {
     validateUpgradeMetadataPatchPlan(patches);
     let fieldCount = 0;
     for (const patch of patches) {

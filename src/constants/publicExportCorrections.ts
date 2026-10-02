@@ -14,7 +14,7 @@ export type TRewardCorrection = {
 // Exact corrections for source rows present in DE's official drop table but absent from the
 // pinned public-export-plus package. Keep these narrow and idempotent so a later package update
 // automatically takes ownership when it contains the same reward.
-export const publicExportRewardCorrections: TRewardCorrection[] = [
+const publicExportRewardCorrections: TRewardCorrection[] = [
     {
         manifest: "/Lotus/Types/Game/MissionDecks/1999ConquestRewards/1999ConquestGoldRewards",
         rotation: 0,

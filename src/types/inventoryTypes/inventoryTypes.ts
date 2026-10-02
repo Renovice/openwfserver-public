@@ -36,7 +36,7 @@ type InventoryDatabaseEquipment = {
     [_ in TEquipmentKey]: IEquipmentDatabase[];
 };
 
-export interface IMissionRelicRewardGroup {
+interface IMissionRelicRewardGroup {
     Wave: number;
     Rewards: ITypeCount[];
 }
@@ -680,7 +680,7 @@ export interface ICompletedJobChain {
     Jobs: string[];
 }
 
-export interface ICompletedJob {
+interface ICompletedJob {
     JobId: string;
     StageCompletions: number[];
 }
@@ -1138,7 +1138,7 @@ export interface ISeasonChallenge {
     id: string;
 }
 
-export interface ISentientSpawnChanceBoosters {
+interface ISentientSpawnChanceBoosters {
     numOceanMissionsCompleted: number;
 }
 
@@ -1204,7 +1204,7 @@ export interface IWeaponSkinClient extends Omit<IWeaponSkinDatabase, "_id"> {
     ItemId: IOidWithLegacySupport;
 }
 
-export interface IWebFlags {
+interface IWebFlags {
     activeBuyPlat?: number;
     noShow2FA?: boolean;
     Tennocon2018Digital?: boolean;

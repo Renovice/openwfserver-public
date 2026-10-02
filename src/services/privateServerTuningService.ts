@@ -141,7 +141,7 @@ export const getPrivateServerMissionRewardSourceMultiplier = (
     source: IMissionRewardMultiplierSource
 ): number => getPrivateServerMissionRewardMultiplier(tuning, source.path, source.missionType);
 
-export const scalePrivateServerPositiveAmount = (value: number, multiplier: number): number => {
+const scalePrivateServerPositiveAmount = (value: number, multiplier: number): number => {
     return value > 0 ? Math.round(value * positivePrivateServerMultiplier(multiplier)) : value;
 };
 

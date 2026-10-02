@@ -6,7 +6,7 @@ import {
     type IGeneratedItem
 } from "../services/generatedMetadataService.ts";
 
-export type TNightwaveAppearancePool =
+type TNightwaveAppearancePool =
     | "warframeAppearance"
     | "weaponAppearance"
     | "operatorCompanionVehicleAppearance"
@@ -68,7 +68,7 @@ const isWarframeAppearance = (typeName: string): boolean =>
         typeName
     );
 
-export const classifyNightwaveAppearance = (item: IGeneratedItem): TNightwaveAppearancePool => {
+const classifyNightwaveAppearance = (item: IGeneratedItem): TNightwaveAppearancePool => {
     const typeName = item.typeName;
     const metadata = item.effectiveMetadata ?? {};
     const evidence = [

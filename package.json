@@ -24,7 +24,7 @@
     "generate-supplementalDict": "cd scripts && node generate-supplementalDict.js",
     "audit:generated-rewards": "node --experimental-strip-types scripts/metadata-audit/audit-generated-rewards.ts",
     "audit:reward-multipliers": "node --experimental-strip-types scripts/reward-multiplier-audit/audit-reward-multiplier-ownership.ts",
-    "audit:pontis-rewards": "node scripts/reward-multiplier-audit/audit-pontis-rewards.mjs",
+    "audit:pontis-rewards": "node --experimental-strip-types scripts/reward-multiplier-audit/audit-pontis-rewards.mjs",
     "audit:generated-items": "node --experimental-strip-types scripts/metadata-audit/audit-generated-item-registry.ts",
     "audit:complete-item-acquisition": "node --experimental-strip-types scripts/metadata-audit/audit-complete-item-acquisition.ts",
     "audit:non-store-acquisition": "node --experimental-strip-types scripts/metadata-audit/audit-non-store-acquisition.ts",

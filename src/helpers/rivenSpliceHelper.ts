@@ -28,8 +28,7 @@ export const getRivenSpliceRecipes = (meta: IUpgrade): SpliceRecipe[] => {
     const contract = getCurrentRivenContract(meta);
     if (!contract) return [];
     const tags = new Set(contract.entries.map(e => e.tag));
-    const resolve = (tag: string): string =>
-        tags.has(tag) ? tag : (meleeIngredientAliases[tag] ?? tag);
+    const resolve = (tag: string): string => (tags.has(tag) ? tag : (meleeIngredientAliases[tag] ?? tag));
     const recipes = contract.mergeOptions.map(recipe => ({
         primaryIngredient: resolve(recipe.primaryIngredient),
         secondaryIngredient: resolve(recipe.secondaryIngredient),

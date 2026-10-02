@@ -101,7 +101,11 @@ assert.throws(() => spliceRiven(rifle, invalid, recipe.id));
 // (44.0.0 modular classes had none; 44.0.2 added them). Never offer a recipe without a native result trait.
 for (const [typeName, contract] of Object.entries(currentRivenContracts)) {
     const hasAdvanced = contract.entries.some(e => e.isAdvancedTrait);
-    assert.equal(getRivenSpliceRecipes(ExportUpgrades[typeName]).some(r => r.available), hasAdvanced, typeName);
+    assert.equal(
+        getRivenSpliceRecipes(ExportUpgrades[typeName]).some(r => r.available),
+        hasAdvanced,
+        typeName
+    );
 }
 
 loadConfig();

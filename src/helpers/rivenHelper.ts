@@ -1,5 +1,5 @@
 import { currentRivenPhysicalRules, getCurrentRivenContract } from "../services/currentPublicExportService.ts";
-import { ExportUpgrades, ExportWeapons, type IUpgrade } from "warframe-public-export-plus";
+import { ExportWeapons, type IUpgrade } from "warframe-public-export-plus";
 import type { TInventoryDatabaseDocument } from "../models/inventoryModels/inventoryModel.ts";
 import { Loadout } from "../models/inventoryModels/loadoutModel.ts";
 import type { IEquipmentDatabase, IEquipmentSelectionDatabase } from "../types/equipmentTypes.ts";
@@ -218,7 +218,7 @@ export const clearRevealCompatPreference = (upgradeId: string): void => {
 
 // Native client ItemCompatibilities / SentinelItemCompatibilities: normal and companion Rivens draw their weapon
 // from separate lists (companion lists include robotic Hound weapons, which normal Rivens never become).
-export const getRivenCompatPool = (meta: IUpgrade, IsSentinel: true | undefined): readonly string[] => {
+const getRivenCompatPool = (meta: IUpgrade, IsSentinel: true | undefined): readonly string[] => {
     const contract = getCurrentRivenContract(meta);
     if (!contract) throw new Error("Unknown Riven type");
     return IsSentinel ? contract.sentinelCompatibleItems : contract.compatibleItems;
@@ -271,7 +271,8 @@ export const isRivenTraitAllowed = (
         } else if (restriction == "DamageTypes") {
             if (!fingerprint.compat) return false;
             if (physicalTraits.has(tag)) {
-                if (currentRivenPhysicalRules[fingerprint.compat]?.includes(tag)) return false;
+                if ((currentRivenPhysicalRules[fingerprint.compat] as readonly string[] | undefined)?.includes(tag))
+                    return false;
             } else {
                 const index = entry.damageType ? elementalDamagePerShotIndex[entry.damageType] : undefined;
                 if (index === undefined || !((weapon?.damagePerShot?.[index] ?? 0) > 0)) return false;

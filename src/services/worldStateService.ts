@@ -1448,7 +1448,7 @@ export const getCurrentCalendarSeason = (timeMs = getWorldStateTime().timeMs): I
     return season;
 };
 
-export const getCalendarSeason = (week: number): ICalendarSeason => {
+const getCalendarSeason = (week: number): ICalendarSeason => {
     const seasonIndex = week % 4;
     const seasonDay1 = [1, 91, 182, 274][seasonIndex];
     const seasonDay91 = seasonDay1 + 90;
@@ -5230,7 +5230,7 @@ export const getLiteSortie = (week: number): ILiteSortie => {
     };
 };
 
-export const getEndlessXpChoices = (
+const getEndlessXpChoices = (
     week: number,
     buildVersion: number,
     fullyStocked: boolean = config.fullyStockedVendors ?? false

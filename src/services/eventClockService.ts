@@ -56,6 +56,7 @@ const loadEventClocks = async (): Promise<void> => {
 
 // Kick off a one-time lazy load; safe to call from the sync worldState path (a clock reads as its natural wall-clock
 // value until the load resolves a few ms later, which is harmless).
+/** @public Also used by RESEARCH/UPSTREAM_SYNC_2026-09-27/scripts/calendar-clock-parity.mjs. */
 export const ensureEventClocksLoaded = (): Promise<void> => {
     if (!loadPromise) {
         loadPromise = loadEventClocks().catch(() => {

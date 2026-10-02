@@ -26,7 +26,7 @@ export interface IGeneratedNightwaveDefinition {
     featuredStoreItemRewards: string[];
 }
 
-export interface IGeneratedBundle {
+interface IGeneratedBundle {
     name: string;
     description: string;
     icon: string;
@@ -65,7 +65,7 @@ export interface IGeneratedItem {
     };
 }
 
-export interface IItemRegistrySummary {
+interface IItemRegistrySummary {
     decodedTypeCount: number;
     storeWrapperCount: number;
     exactPairCount: number;
@@ -85,7 +85,7 @@ export interface IGeneratedVendor extends IVendor {
     sourceSha256: string;
 }
 
-export interface IGeneratedSyndicateFavours {
+interface IGeneratedSyndicateFavours {
     uniqueName: string;
     manifestPath: string;
     sourceSha256: string;
@@ -97,7 +97,7 @@ export interface IGeneratedSyndicateFavours {
     }[];
 }
 
-export interface IGeneratedDojoRecipes {
+interface IGeneratedDojoRecipes {
     manifestPath: string;
     sourceSha256: string;
     currentManifestCount: number;
@@ -124,8 +124,8 @@ if (metadata.schemaVersion != 1) {
 
 export const generatedNightwaveSyndicates = metadata.generatedNightwaveSyndicates ?? {};
 export const generatedVendors = metadata.generatedVendors ?? {};
-export const generatedSyndicateFavours = metadata.generatedSyndicateFavours ?? {};
-export const generatedDojoRecipes = metadata.generatedDojoRecipes;
+const generatedSyndicateFavours = metadata.generatedSyndicateFavours ?? {};
+const generatedDojoRecipes = metadata.generatedDojoRecipes;
 export const generatedBundles = metadata.generatedBundles ?? {};
 export const generatedCosmetics = metadata.generatedCosmetics ?? {};
 export const generatedItems = metadata.generatedItems ?? {};

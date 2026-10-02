@@ -131,11 +131,7 @@ type TagPayload = readonly string[] | Record<string, unknown>;
 const maxNativeLockedTraits = 4;
 
 // The client also lists the automatically locked spliced trait in LockedTraits; only manual locks count.
-const getNativeLockedTraits = (
-    request: LetsGoGamblingRequest,
-    itemId: string,
-    meta: IUpgrade
-): LockedRivenStatTags => {
+const getNativeLockedTraits = (request: LetsGoGamblingRequest, itemId: string, meta: IUpgrade): LockedRivenStatTags => {
     const tags = [...new Set(getTagsFromPayload(request.LockedTraits, itemId))];
     const advanced = new Set(
         getCurrentRivenContract(meta)

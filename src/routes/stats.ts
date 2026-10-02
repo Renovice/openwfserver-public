@@ -1,0 +1,23 @@
+import express from "express";
+import { viewController } from "../controllers/stats/viewController.ts";
+import { uploadController } from "../controllers/stats/uploadController.ts";
+import {
+    leaderboardPostController,
+    leaderboardGetController,
+    leaderboardU10Controller
+} from "../controllers/stats/leaderboardController.ts";
+
+const statsRouter = express.Router();
+
+statsRouter.get("/view.php", viewController);
+statsRouter.get("/profileStats.php", viewController);
+statsRouter.get("/leaderboard.php", leaderboardGetController);
+statsRouter.get("/leaderboardArchived.php", leaderboardU10Controller);
+statsRouter.get("/leaderboardCurrent.php", leaderboardU10Controller);
+statsRouter.get("/leaderboardWeekly.php", leaderboardU10Controller);
+statsRouter.post("/upload.php", uploadController);
+statsRouter.post("/view.php", viewController);
+statsRouter.post("/leaderboardWeekly.php", leaderboardPostController);
+statsRouter.post("/leaderboardArchived.php", leaderboardPostController);
+
+export { statsRouter };

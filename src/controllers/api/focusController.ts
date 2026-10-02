@@ -1,0 +1,606 @@
+import type { RequestHandler } from "express";
+import { getAccountForRequest, getBuildLabel } from "../../services/loginService.ts";
+import { getInventory2, addMiscItems, addEquipment, occupySlot } from "../../services/inventoryService.ts";
+import type { IMiscItem, TFocusPolarity, TEquipmentKey } from "../../types/inventoryTypes/inventoryTypes.ts";
+import { eInventorySlot } from "../../types/inventoryTypes/inventoryTypes.ts";
+import { logger } from "../../utils/logger.ts";
+import { ExportFocusUpgrades } from "warframe-public-export-plus";
+import { Inventory } from "../../models/inventoryModels/inventoryModel.ts";
+import { version_compare } from "../../helpers/inventoryHelpers.ts";
+import gameToBuildVersion from "../../constants/gameToBuildVersion.ts";
+
+export const focusController: RequestHandler = async (req, res) => {
+    const account = await getAccountForRequest(req);
+    const buildLabel = getBuildLabel(req, account);
+
+    let focusVersion = 3;
+    if (version_compare(buildLabel, gameToBuildVersion["31.5.0"]) < 0) {
+        focusVersion = 2;
+        if (version_compare(buildLabel, gameToBuildVersion["22.0.0"]) < 0) {
+            focusVersion = 1;
+        }
+    }
+
+    let op = req.query.op as string;
+    if (focusVersion == 1) {
+        switch (req.query.op) {
+            case Focus1Operation.InstallLens:
+                op = "InstallLens";
+                break;
+            case Focus1Operation.UnlockWay:
+                op = "UnlockWay";
+                break;
+            case Focus1Operation.UnlockUpgrade:
+                op = "UnlockUpgrade";
+                break;
+            case Focus1Operation.IncreasePool:
+                op = "IncreasePool";
+                break;
+            case Focus1Operation.LevelUpUpgrade:
+                op = "LevelUpUpgrade";
+                break;
+            case Focus1Operation.ActivateWay:
+                op = "ActivateWay";
+                break;
+            case Focus1Operation.UpdateUpgrade:
+                op = "UpdateUpgrade";
+                break;
+            case Focus1Operation.UpgradeCooldown:
+                op = "UpgradeCooldown";
+                break;
+            case Focus1Operation.SentTrainingAmplifier:
+                op = "SentTrainingAmplifier";
+                break;
+            case Focus1Operation.UpdateCooldownReduction:
+                op = "UpdateCooldownReduction";
+                break;
+        }
+    } else if (focusVersion == 2) {
+        switch (req.query.op) {
+            case Focus2Operation.InstallLens:
+                op = "InstallLens";
+                break;
+            case Focus2Operation.UnlockWay:
+                op = "UnlockWay";
+                break;
+            case Focus2Operation.UnlockUpgrade:
+                op = "UnlockUpgrade";
+                break;
+            case Focus2Operation.IncreasePool:
+                op = "IncreasePool";
+                break;
+            case Focus2Operation.LevelUpUpgrade:
+                op = "LevelUpUpgrade";
+                break;
+            case Focus2Operation.ActivateWay:
+                op = "ActivateWay";
+                break;
+            case Focus2Operation.UpdateUpgrade:
+                op = "UpdateUpgrade";
+                break;
+            case Focus2Operation.SentTrainingAmplifier:
+                op = "SentTrainingAmplifier";
+                break;
+            case Focus2Operation.UnbindUpgrade:
+                op = "UnbindUpgrade";
+                break;
+            case Focus2Operation.ConvertShard:
+                op = "ConvertShard";
+                break;
+        }
+    } else {
+        // Focus 3.0
+        switch (req.query.op) {
+            case Focus3Operation.InstallLens:
+                op = "InstallLens";
+                break;
+            case Focus3Operation.UnlockWay:
+                op = "UnlockWay";
+                break;
+            case Focus3Operation.UnlockUpgrade:
+                op = "UnlockUpgrade";
+                break;
+            case Focus3Operation.LevelUpUpgrade:
+                op = "LevelUpUpgrade";
+                break;
+            case Focus3Operation.ActivateWay:
+                op = "ActivateWay";
+                break;
+            case Focus3Operation.SentTrainingAmplifier:
+                op = "SentTrainingAmplifier";
+                break;
+            case Focus3Operation.UnbindUpgrade:
+                op = "UnbindUpgrade";
+                break;
+            case Focus3Operation.ConvertShard:
+                op = "ConvertShard";
+                break;
+        }
+    }
+
+    logger.trace(`focus op: ${op}`);
+    logger.trace(String(req.body));
+
+    switch (op) {
+        default:
+            logger.error("Unhandled focus op type: " + String(req.query.op));
+            logger.debug(String(req.body));
+            res.end();
+            break;
+        case "InstallLens": {
+            const request = JSON.parse(String(req.body)) as ILensInstallRequest;
+            const response: IInstallLensResponse = {
+                weaponId: request.WeaponId,
+                lensType: request.LensType
+            };
+            const bayonetOtherCategory = request.Category == "Melee" ? "LongGuns" : "Melee";
+            const inventory = await getInventory2(account._id, request.Category, bayonetOtherCategory, "MiscItems");
+            const item = inventory[request.Category].id(request.WeaponId);
+            if (item) {
+                item.FocusLens = request.LensType;
+                if (item.AltWeaponModeId) {
+                    inventory[bayonetOtherCategory].id(item.AltWeaponModeId)!.FocusLens = request.LensType;
+                    response.altWeaponModeId = item.AltWeaponModeId.toString();
+                }
+                addMiscItems(inventory, [
+                    {
+                        ItemType: request.LensType,
+                        ItemCount: -1
+                    } satisfies IMiscItem
+                ]);
+            }
+            await inventory.save();
+            res.json(response);
+            break;
+        }
+        case "UnlockWay": {
+            const focusType = (JSON.parse(String(req.body)) as IWayRequest).FocusType;
+            const focusPolarity = focusTypeToPolarity(focusType);
+            const inventory = await getInventory2(account._id, "FocusAbility", "FocusUpgrades", "FocusXP");
+            const cost = inventory.FocusAbility ? 50_000 : 0;
+            inventory.FocusAbility ??= focusType;
+            inventory.FocusUpgrades.push({ ItemType: focusType, IsActive: true, TotalCapacity: 5 });
+            if (cost) {
+                inventory.FocusXP![focusPolarity]! -= cost;
+            }
+            await inventory.save();
+            res.json({
+                FocusUpgrade: { ItemType: focusType, IsActive: true, TotalCapacity: 5 },
+                FocusPointCosts: { [focusPolarity]: cost }
+            });
+            break;
+        }
+        case "IncreasePool": {
+            if (focusVersion > 1) {
+                const request = JSON.parse(String(req.body)) as IIncreasePool2Request;
+                const focusPolarity = focusTypeToPolarity(request.FocusType);
+                const inventory = await getInventory2(account._id, "FocusXP", "FocusCapacity");
+                let cost = 0;
+                for (let capacity = request.CurrentTotalCapacity; capacity != request.NewTotalCapacity; ++capacity) {
+                    cost += increasePoolCost[capacity - 5];
+                }
+                inventory.FocusXP![focusPolarity]! -= cost;
+                inventory.FocusCapacity = request.NewTotalCapacity;
+                await inventory.save();
+                res.json({
+                    TotalCapacity: request.NewTotalCapacity,
+                    FocusPointCosts: { [focusPolarity]: cost }
+                });
+            } else {
+                const request = JSON.parse(String(req.body)) as IIncreasePool1Request;
+                const focusPolarity = focusTypeToPolarity(request.FocusType);
+                const inventory = await getInventory2(account._id, "FocusXP", "FocusUpgrades");
+                inventory.FocusXP![focusPolarity]! -= request.XPCost;
+                inventory.FocusUpgrades.find(x => x.ItemType == request.FocusType)!.TotalCapacity =
+                    request.CurrentTotalCapacity;
+                await inventory.save();
+                res.json({
+                    FocusUpgrade: {
+                        ItemType: request.FocusType,
+                        TotalCapacity: request.CurrentTotalCapacity
+                    },
+                    FocusPointCosts: { [focusPolarity]: request.XPCost }
+                });
+            }
+            break;
+        }
+        case "ActivateWay": {
+            const focusType = (JSON.parse(String(req.body)) as IWayRequest).FocusType;
+
+            await Inventory.updateOne(
+                {
+                    accountOwnerId: account._id
+                },
+                {
+                    FocusAbility: focusType
+                }
+            );
+
+            res.json({
+                FocusUpgrade: { ItemType: focusType }
+            });
+            break;
+        }
+        case "UnlockUpgrade": {
+            const request = JSON.parse(String(req.body)) as IUnlockUpgrade2Request | IUnlockUpgrade1Request;
+            const inventory = await getInventory2(account._id, "FocusUpgrades", "FocusXP");
+            if ("FocusTypes" in request) {
+                const focusPolarity = focusTypeToPolarity(request.FocusTypes[0]);
+                let cost = 0;
+                for (const focusType of request.FocusTypes) {
+                    cost += getUpgradeUnlockCost(focusType);
+                    inventory.FocusUpgrades.push({ ItemType: focusType, Level: 0 });
+                }
+                inventory.FocusXP![focusPolarity]! -= cost;
+                await inventory.save();
+                res.json({
+                    FocusTypes: request.FocusTypes,
+                    FocusPointCosts: { [focusPolarity]: cost }
+                });
+            } else {
+                const focusPolarity = focusTypeToPolarity(request.FocusType);
+                const inventory = await getInventory2(account._id, "FocusUpgrades", "FocusXP");
+                const cost = getUpgradeUnlockCost(request.FocusType);
+                inventory.FocusUpgrades.push({
+                    ItemType: request.FocusType,
+                    Level: 0,
+                    IsActive: request.ActivateUpgrade
+                });
+                inventory.FocusXP![focusPolarity]! -= cost;
+                await inventory.save();
+                res.json({
+                    FocusUpgrade: {
+                        ItemType: request.FocusType,
+                        Level: 0,
+                        IsActive: request.ActivateUpgrade
+                    },
+                    FocusPointCosts: { [focusPolarity]: cost }
+                });
+            }
+            break;
+        }
+        case "LevelUpUpgrade": {
+            const request = JSON.parse(String(req.body)) as ILevelUpUpgrade2Request | ILevelUpUpgrade1Request;
+            const inventory = await getInventory2(account._id, "FocusUpgrades", "FocusXP");
+            if ("FocusInfos" in request) {
+                const focusPolarity = focusTypeToPolarity(request.FocusInfos[0].ItemType);
+                let cost = 0;
+                for (const focusUpgrade of request.FocusInfos) {
+                    cost += focusUpgrade.FocusXpCost;
+                    const focusUpgradeDb = inventory.FocusUpgrades.find(
+                        entry => entry.ItemType == focusUpgrade.ItemType
+                    )!;
+                    focusUpgradeDb.Level = focusUpgrade.Level;
+                }
+                inventory.FocusXP![focusPolarity]! -= cost;
+                await inventory.save();
+                res.json({
+                    FocusInfos: request.FocusInfos,
+                    FocusPointCosts: { [focusPolarity]: cost }
+                });
+            } else {
+                const focusPolarity = focusTypeToPolarity(request.FocusType);
+                inventory.FocusUpgrades.find(x => x.ItemType == request.FocusType)!.Level = request.NewLvl;
+                inventory.FocusXP![focusPolarity]! -= request.XPCost;
+                await inventory.save();
+                res.json({
+                    FocusUpgrade: {
+                        ItemType: request.FocusType,
+                        Level: request.NewLvl
+                    },
+                    FocusPointCosts: { [focusPolarity]: request.XPCost }
+                });
+            }
+            break;
+        }
+        case "UpdateUpgrade": {
+            const request = JSON.parse(String(req.body)) as ILevelUpUpgrade2Request | IUpdateUpgrade1Request;
+            const inventory = await getInventory2(account._id, "FocusUpgrades");
+            if ("FocusInfos" in request) {
+                for (const focusUpgrade of request.FocusInfos) {
+                    const focusUpgradeDb = inventory.FocusUpgrades.find(
+                        entry => entry.ItemType == focusUpgrade.ItemType
+                    )!;
+                    focusUpgradeDb.IsActive = focusUpgrade.IsActive;
+                }
+                await inventory.save();
+                res.json({ FocusInfos: request.FocusInfos });
+            } else {
+                for (const focusType of request.FocusTypes) {
+                    inventory.FocusUpgrades.find(x => x.ItemType == focusType)!.IsActive = request.ActivateUpgrade;
+                }
+                await inventory.save();
+                res.json(request);
+            }
+            break;
+        }
+        case "UpgradeCooldown": {
+            const request = JSON.parse(String(req.body)) as IUpgradeCooldownRequest;
+            const focusPolarity = focusTypeToPolarity(request.FocusType);
+            const inventory = await getInventory2(account._id, "FocusUpgrades", "FocusXP");
+            inventory.FocusUpgrades.find(x => x.ItemType == request.FocusType)!.CooldownTier = request.NewTier;
+            inventory.FocusXP![focusPolarity]! -= request.XPCost;
+            await inventory.save();
+            res.json({
+                FocusUpgrade: {
+                    ItemType: request.FocusType,
+                    CooldownTier: request.NewTier
+                },
+                FocusPointCosts: { [focusPolarity]: request.XPCost }
+            });
+            break;
+        }
+        case "UpdateCooldownReduction": {
+            const request = JSON.parse(String(req.body)) as IUpdateCooldownReductionRequest;
+            const inventory = await getInventory2(account._id, "FocusUpgrades");
+            inventory.FocusUpgrades.find(x => x.ItemType == request.FocusType)!.IsCooldownReductionActive =
+                request.ActivateCooldown;
+            await inventory.save();
+            res.json({
+                FocusUpgrade: {
+                    ItemType: request.FocusType,
+                    IsCooldownReductionActive: request.ActivateCooldown
+                }
+            });
+            break;
+        }
+        case "SentTrainingAmplifier": {
+            const request = JSON.parse(String(req.body)) as ISentTrainingAmplifierRequest;
+            const inventory = await getInventory2(account._id, "OperatorAmps", "OperatorAmpBin");
+            const inventoryChanges = addEquipment(inventory, "OperatorAmps", request.StartingWeaponType, {
+                ModularParts: [
+                    "/Lotus/Weapons/Sentients/OperatorAmplifiers/SentTrainingAmplifier/SentAmpTrainingGrip",
+                    "/Lotus/Weapons/Sentients/OperatorAmplifiers/SentTrainingAmplifier/SentAmpTrainingChassis",
+                    "/Lotus/Weapons/Sentients/OperatorAmplifiers/SentTrainingAmplifier/SentAmpTrainingBarrel"
+                ]
+            });
+            occupySlot(inventory, eInventorySlot.AMPS, false);
+            await inventory.save();
+            res.json(inventoryChanges.OperatorAmps![0]);
+            break;
+        }
+        case "UnbindUpgrade": {
+            const request = JSON.parse(String(req.body)) as IUnbindUpgradeRequest;
+            const focusPolarity = focusTypeToPolarity(request.FocusTypes[0]);
+            const inventory = await getInventory2(account._id, "FocusXP", "FocusUpgrades", "MiscItems");
+            inventory.FocusXP![focusPolarity]! -= 750_000 * request.FocusTypes.length;
+            addMiscItems(inventory, [
+                {
+                    ItemType: "/Lotus/Types/Gameplay/Eidolon/Resources/SentientShards/SentientShardBrilliantItem",
+                    ItemCount: request.FocusTypes.length * -1
+                }
+            ]);
+            request.FocusTypes.forEach(type => {
+                const focusUpgradeDb = inventory.FocusUpgrades.find(entry => entry.ItemType == type)!;
+                focusUpgradeDb.IsUniversal = true;
+            });
+            await inventory.save();
+            res.json({
+                FocusTypes: request.FocusTypes,
+                FocusPointCosts: {
+                    [focusPolarity]: 750_000 * request.FocusTypes.length
+                },
+                MiscItemCosts: [
+                    {
+                        ItemType: "/Lotus/Types/Gameplay/Eidolon/Resources/SentientShards/SentientShardBrilliantItem",
+                        ItemCount: request.FocusTypes.length
+                    }
+                ]
+            });
+            break;
+        }
+        case "ConvertShard": {
+            const request = JSON.parse(String(req.body)) as IConvertShardRequest;
+            if (!request.Shards) {
+                request.Shards = [
+                    {
+                        ItemType: request.ShardType!,
+                        ItemCount: request.NumShards!
+                    }
+                ];
+            }
+            // Tally XP
+            let xp = 0;
+            for (const shard of request.Shards) {
+                xp += shardValues[shard.ItemType as keyof typeof shardValues] * shard.ItemCount;
+            }
+            // Send response
+            res.json({
+                FocusPointGains: {
+                    [request.Polarity]: xp
+                },
+                MiscItemCosts: request.Shards
+            });
+            // Commit added XP and removed shards to DB
+            for (const shard of request.Shards) {
+                shard.ItemCount *= -1;
+            }
+            const inventory = await getInventory2(account._id, "FocusXP", "MiscItems");
+            const polarity = request.Polarity;
+            inventory.FocusXP ??= {};
+            inventory.FocusXP[polarity] ??= 0;
+            inventory.FocusXP[polarity] += xp;
+            addMiscItems(inventory, request.Shards);
+            await inventory.save();
+            break;
+        }
+    }
+};
+
+// Focus 3.0
+const Focus3Operation = {
+    InstallLens: "1",
+    UnlockWay: "2",
+    UnlockUpgrade: "3",
+    LevelUpUpgrade: "4",
+    ActivateWay: "5",
+    SentTrainingAmplifier: "7",
+    UnbindUpgrade: "8",
+    ConvertShard: "9"
+} as const;
+
+// Focus 2.0
+const Focus2Operation = {
+    InstallLens: "1",
+    UnlockWay: "2",
+    UnlockUpgrade: "3",
+    IncreasePool: "4",
+    LevelUpUpgrade: "5",
+    ActivateWay: "6",
+    UpdateUpgrade: "7", // used to change the IsActive state, same format as ILevelUpUpgradeRequest
+    SentTrainingAmplifier: "9",
+    UnbindUpgrade: "10",
+    ConvertShard: "11"
+} as const;
+
+// Focus 1.0
+const Focus1Operation = {
+    InstallLens: "1",
+    UnlockWay: "2",
+    UnlockUpgrade: "3",
+    IncreasePool: "4",
+    LevelUpUpgrade: "5",
+    ActivateWay: "6",
+    UpdateUpgrade: "7",
+    UpgradeCooldown: "8",
+    SentTrainingAmplifier: "9",
+    UpdateCooldownReduction: "10"
+} as const;
+
+// For UnlockWay & ActivateWay
+interface IWayRequest {
+    FocusType: string;
+}
+
+// Format changed in U18.5, maybe earlier
+interface IUnlockUpgrade2Request {
+    FocusTypes: string[];
+}
+interface IUnlockUpgrade1Request {
+    FocusType: string;
+    ActivateUpgrade: boolean;
+}
+
+// Focus 1.0
+interface IUpgradeCooldownRequest {
+    FocusType: string;
+    NewTier: number;
+    XPCost: number;
+}
+
+// Focus 2.0
+interface IIncreasePool2Request {
+    FocusType: string;
+    CurrentTotalCapacity: number;
+    NewTotalCapacity: number;
+}
+
+// Focus 1.0
+interface IIncreasePool1Request {
+    FocusType: string;
+    CurrentTotalCapacity: number; // is actually the new total capacity
+    XPCost: number;
+}
+
+// Format changed in U18.5, maybe earlier
+interface ILevelUpUpgrade2Request {
+    FocusInfos: {
+        ItemType: string;
+        FocusXpCost: number;
+        IsUniversal: boolean;
+        Level: number;
+        IsActiveAbility: boolean;
+        IsActive?: number; // Focus 2.0
+    }[];
+}
+interface ILevelUpUpgrade1Request {
+    FocusType: string;
+    XPCost: number;
+    NewLvl: number;
+}
+
+// Focus 1.0
+interface IUpdateUpgrade1Request {
+    FocusTypes: string[];
+    ActivateUpgrade: boolean;
+}
+
+// Focus 1.0
+interface IUpdateCooldownReductionRequest {
+    FocusType: string;
+    ActivateCooldown: boolean;
+}
+
+interface IUnbindUpgradeRequest {
+    ShardTypes: string[];
+    FocusTypes: string[];
+}
+
+interface IConvertShardRequest {
+    Shards?: IMiscItem[]; // Focus 3.0
+    ShardType?: string; // Focus 2.0
+    NumShards?: number; // Focus 2.0
+    Polarity: TFocusPolarity;
+}
+
+interface ISentTrainingAmplifierRequest {
+    StartingWeaponType: string;
+}
+
+interface ILensInstallRequest {
+    LensType: string;
+    Category: TEquipmentKey;
+    WeaponId: string;
+}
+interface IInstallLensResponse {
+    weaponId: string;
+    altWeaponModeId?: string;
+    lensType: string;
+}
+
+// Works for ways & upgrades
+const focusTypeToPolarity = (type: string): TFocusPolarity => {
+    return ("AP_" + type.substring(1).split("/")[3].toUpperCase()) as TFocusPolarity;
+};
+
+const focusUnlockCostSupplementals: Record<string, number> = {
+    "/Lotus/Upgrades/Focus/Power/Residual/ChannelEfficiencyFocusUpgrade": 50_000, // Zenurik's Inner Might (Focus 2.0)
+    "/Lotus/Upgrades/Focus/Attack/Residual/SlashDamageFocusUpgrade": 50_000, // Madurai's Blazing Fury (Focus 1.0)
+    "/Lotus/Upgrades/Focus/Attack/Chaos/FastAndShortFocusUpgrade": 80_000, // Madurai's Phoenix Flash (Focus 1.0)
+    "/Lotus/Upgrades/Focus/Attack/Active/SplitStreamFocusUpgrade": 25_000, // Madurai's Chimera Breath (Focus 1.0)
+    "/Lotus/Upgrades/Focus/Attack/Chaos/RadialBurstFocusUpgrade": 50_000 // Madurai's Rising Ashes (Focus 1.0)
+};
+
+const getUpgradeUnlockCost = (focusType: string): number => {
+    if (focusType in ExportFocusUpgrades) {
+        return ExportFocusUpgrades[focusType].baseFocusPointCost;
+    } else if (focusType in focusUnlockCostSupplementals) {
+        return focusUnlockCostSupplementals[focusType];
+    } else {
+        logger.warn(`unknown focus upgrade ${focusType}, unlocking it for free`);
+        return 0;
+    }
+};
+
+const shardValues = {
+    "/Lotus/Types/Gameplay/Eidolon/Resources/SentientShards/SentientShardCommonItem": 2_500,
+    "/Lotus/Types/Gameplay/Eidolon/Resources/SentientShards/SentientShardSynthesizedItem": 5_000,
+    "/Lotus/Types/Gameplay/Eidolon/Resources/SentientShards/SentientShardBrilliantItem": 25_000,
+    "/Lotus/Types/Gameplay/Eidolon/Resources/SentientShards/SentientShardBrilliantTierTwoItem": 40_000
+};
+
+// Starting at a capacity of 5 (Source: https://wiki.warframe.com/w/Focus_2.0)
+const increasePoolCost = [
+    2576, 3099, 3638, 4190, 4755, 5331, 5918, 6514, 7120, 7734, 8357, 8988, 9626, 10271, 10923, 11582, 12247, 12918,
+    13595, 14277, 14965, 15659, 16357, 17061, 17769, 18482, 19200, 19922, 20649, 21380, 22115, 22854, 23597, 24344,
+    25095, 25850, 26609, 27371, 28136, 28905, 29678, 30454, 31233, 32015, 32801, 33590, 34382, 35176, 35974, 36775,
+    37579, 38386, 39195, 40008, 40823, 41641, 42461, 43284, 44110, 44938, 45769, 46603, 47439, 48277, 49118, 49961,
+    50807, 51655, 52505, 53357, 54212, 55069, 55929, 56790, 57654, 58520, 59388, 60258, 61130, 62005, 62881, 63759,
+    64640, 65522, 66407, 67293, 68182, 69072, 69964, 70858, 71754, 72652, 73552, 74453, 75357, 76262, 77169, 78078,
+    78988, 79900, 80814, 81730, 82648, 83567, 84488, 85410, 86334, 87260, 88188, 89117, 90047, 90980, 91914, 92849,
+    93786, 94725, 95665, 96607, 97550, 98495, 99441, 100389, 101338, 102289, 103241, 104195, 105150, 106107, 107065,
+    108024, 108985, 109948, 110911, 111877, 112843, 113811, 114780, 115751, 116723, 117696, 118671, 119647, 120624,
+    121603, 122583, 123564, 124547, 125531, 126516, 127503, 128490, 129479, 130470, 131461, 132454, 133448, 134443,
+    135440, 136438, 137437, 138437, 139438, 140441, 141444, 142449, 143455, 144463, 145471, 146481, 147492, 148503,
+    149517
+];

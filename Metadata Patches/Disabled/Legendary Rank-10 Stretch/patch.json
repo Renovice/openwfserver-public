@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "renovice.upgrade.avatarabilityrangemod.5ea266a9b8",
+  "name": "Legendary Rank-10 Stretch",
+  "version": "1.0.0",
+  "components": {
+    "clientMetadata": true,
+    "serverDefinitions": true,
+    "inventoryMigration": false
+  }
+}

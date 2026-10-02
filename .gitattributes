@@ -1,0 +1,5 @@
+# Auto detect text files and perform LF normalization
+* text=auto eol=lf
+
+static/webui/libs/ linguist-vendored
+static/generated/** -diff -text -eol linguist-generated=true

@@ -1,0 +1,64 @@
+import type { IDatabaseAccountJson, IIgnore } from "../types/loginTypes.ts";
+import type { SchemaOptions } from "mongoose";
+import { model, Schema } from "mongoose";
+
+const opts = {
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true }
+} satisfies SchemaOptions;
+
+export const MAX_NAME_LENGTH = 24;
+
+const databaseAccountSchema = new Schema<IDatabaseAccountJson>(
+    {
+        email: { type: String, required: true, unique: true },
+        password: { type: String, required: true },
+        DisplayName: { type: String, required: true, unique: true, maxLength: MAX_NAME_LENGTH },
+        CountryCode: { type: String },
+        Language: { type: String },
+        ClientType: { type: String },
+        CrossPlatformAllowed: Boolean,
+        ForceLogoutVersion: Number,
+        GoogleTokenId: { type: String },
+        ConsentNeeded: Boolean,
+        TrackedSettings: { type: [String], default: undefined },
+        Nonce: { type: Number, default: 0 },
+        BuildLabel: String,
+        LastLogin: { type: Date, default: 0 },
+        LastPlatform: Number,
+        Dropped: Boolean,
+        LatestEventMessageDate: { type: Date, default: 0 },
+        LastLoginRewardDate: { type: Number, default: 0 },
+        LoginDays: { type: Number, default: 1 },
+        DailyFirstWinDate: { type: Number, default: 0 },
+        receivedEventMessage_creditBoost: Boolean,
+        receivedEventMessage_affinityBoost: Boolean,
+        receivedEventMessage_resourceBoost: Boolean,
+        receivedEventMessage_galleonOfGhouls: Boolean,
+        receivedEventMessage_bloodOfPerita: Boolean,
+        receivedEventMessage_longShadow: Boolean,
+        receivedEventMessage_operationAtramentum: Boolean,
+        receivedEventMessage_breedingGrounds: Boolean
+    },
+    opts
+);
+
+databaseAccountSchema.set("toJSON", {
+    transform(_document, returnedObject: Record<string, any>) {
+        delete returnedObject._id;
+        delete returnedObject.__v;
+    },
+    virtuals: true
+});
+
+export const Account = model<IDatabaseAccountJson>("Account", databaseAccountSchema);
+
+const ignoreSchema = new Schema<IIgnore>({
+    ignorer: Schema.Types.ObjectId,
+    ignoree: Schema.Types.ObjectId
+});
+
+ignoreSchema.index({ ignorer: 1 });
+ignoreSchema.index({ ignorer: 1, ignoree: 1 }, { unique: true });
+
+export const Ignore = model<IIgnore>("Ignore", ignoreSchema);

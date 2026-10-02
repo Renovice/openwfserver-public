@@ -1,0 +1,33 @@
+/node_modules
+/build
+
+/.env
+/config.json
+/static/data/**
+!/static/data/.gitkeep
+yarn.lock
+/tmp
+
+# JetBrains/webstorm configs
+.idea/
+
+# logs
+/logs
+
+# MongoDB VSCode extension playground scripts
+/database_scripts
+
+# Default Docker directory
+/docker-data
+
+# MongoDB data
+/database
+/db-data
+/db-backup
+
+# local-only: TLS keys, logs, scratch files (never commit)
+/cert
+/RESEARCH
+*.log
+*.tmp
+*.bak

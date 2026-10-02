@@ -1,0 +1,4679 @@
+import type { TInventoryDatabaseDocument } from "../models/inventoryModels/inventoryModel.ts";
+import { Inventory } from "../models/inventoryModels/inventoryModel.ts";
+import { config, shouldDoServerQol } from "./configService.ts";
+import { Types } from "mongoose";
+import type { IInventoryChanges, IBinChanges, IAffiliationMods } from "../types/purchaseTypes.ts";
+import type {
+    IChallengeProgress,
+    IMiscItem,
+    IMission,
+    IRawUpgrade,
+    ISeasonChallenge,
+    IWeaponSkinClient,
+    TEquipmentKey,
+    IFusionTreasure,
+    IDailyAffiliations,
+    ILibraryDailyTaskInfo,
+    IDroneClient,
+    IUpgradeClient,
+    TPartialStartingGear,
+    ILoreFragmentScan,
+    ICrewMemberClient,
+    ICalendarProgress,
+    INemesisWeaponTargetFingerprint,
+    INemesisPetTargetFingerprint,
+    IDialogueDatabase,
+    IKubrowPetPrintClient,
+    IWeeklyMissionChallengeInfo,
+    ITauPrequelQuestCustomData,
+    ICollectibleEntry,
+    TInventorySlot,
+    IInventoryClient
+} from "../types/inventoryTypes/inventoryTypes.ts";
+import { eInventorySlot, equipmentKeys, slotNames } from "../types/inventoryTypes/inventoryTypes.ts";
+import type { IGenericUpdate, IUpdateNodeIntrosResponse } from "../types/genericUpdateTypes.ts";
+import type { IAffiliationChange, IGoalsProgress, IKeyChainRequest } from "../types/requestTypes.ts";
+import { logger } from "../utils/logger.ts";
+import {
+    convertInboxMessage,
+    isStoreItem,
+    fromStoreItem,
+    getKey,
+    getKeyChainItems,
+    getPowerSuit,
+    getSyndicate,
+    supplementalChallenges,
+    supplementalKeys,
+    supplementalRecipes,
+    supplementalUpgrades,
+    U5ModsWeights,
+    U5Modules,
+    getDefaultUpgrades
+} from "./itemDataService.ts";
+import type { IFlavourItem, IItemConfig, IItemConfigDatabase } from "../types/inventoryTypes/commonInventoryTypes.ts";
+import type { IChallenge, IDefaultUpgrade, IRegion, ISentinel, TStandingLimitBin } from "warframe-public-export-plus";
+import {
+    ExportArcanes,
+    ExportBoosters,
+    ExportBundles,
+    ExportChallenges,
+    ExportCreditBundles,
+    ExportCustoms,
+    ExportDrones,
+    ExportEmailItems,
+    ExportEnemies,
+    ExportFlavour,
+    ExportFusionBundles,
+    ExportGear,
+    ExportKeys,
+    ExportRailjackWeapons,
+    ExportRecipes,
+    ExportRegions,
+    ExportResources,
+    ExportSentinels,
+    ExportSystems,
+    ExportUpgrades,
+    ExportWeapons
+} from "warframe-public-export-plus";
+import { getGeneratedCosmetic, getGeneratedItem } from "./generatedMetadataService.ts";
+import { createShip } from "./shipService.ts";
+import { getCurrentPairedRightArmor } from "../helpers/inventoryCompatibility.ts";
+import type { TTraitsPool } from "../helpers/inventoryHelpers.ts";
+import {
+    catbrowDetails,
+    convertFromLegacyFingerprint,
+    convertToLegacyFingerprint,
+    fromMongoDate,
+    fromOid,
+    kubrowDetails,
+    kubrowFurPatternsWeights,
+    kubrowWeights,
+    toMongoDate2,
+    toOid,
+    toOid2,
+    version_compare
+} from "../helpers/inventoryHelpers.ts";
+import { addQuestKey, completeQuest } from "./questService.ts";
+import { handleBundleAcquisition } from "./purchaseService.ts";
+import libraryDailyTasks from "../../static/fixed_responses/libraryDailyTasks.json" with { type: "json" };
+import {
+    generateRewardSeed,
+    getRandomElement,
+    getRandomFloat,
+    getRandomInt,
+    getRandomWeightedReward,
+    SRng
+} from "./rngService.ts";
+import type { IMessageCreationTemplate } from "./inboxService.ts";
+import { createMessage } from "./inboxService.ts";
+import { getMaxStanding, getMinStanding } from "../helpers/syndicateStandingHelper.ts";
+import { getCurrentCalendarSeason, getNightwaveSyndicateTag, getWorldState } from "./worldStateService.ts";
+import type { ICalendarSeason } from "../types/worldStateTypes.ts";
+import type { INemesisProfile } from "../helpers/nemesisHelpers.ts";
+import { generateNemesisProfile, getFallbackHelmet } from "../helpers/nemesisHelpers.ts";
+import { type TAccountDocument } from "./loginService.ts";
+import { KAHL_EPOCH, unixTimesInMs } from "../constants/timeConstants.ts";
+import { addString } from "../helpers/stringHelpers.ts";
+import type {
+    IEquipmentClient,
+    IEquipmentDatabase,
+    IKubrowGenetics,
+    IKubrowPetDetailsDatabase,
+    ITraits
+} from "../types/equipmentTypes.ts";
+import { eEquipmentFeatures, eStatus } from "../types/equipmentTypes.ts";
+import type { ITypeCount } from "../types/commonTypes.ts";
+import type { TLoadoutDatabaseDocument } from "../models/inventoryModels/loadoutModel.ts";
+import gameToBuildVersion from "../constants/gameToBuildVersion.ts";
+import suitDefaultUpgrades from "../constants/suitDefaultUpgrades.ts";
+import kuriaMessage50 from "../../static/fixed_responses/kuriaMessages/fiftyPercent.json" with { type: "json" };
+import kuriaMessage75 from "../../static/fixed_responses/kuriaMessages/seventyFivePercent.json" with { type: "json" };
+import kuriaMessage100 from "../../static/fixed_responses/kuriaMessages/oneHundredPercent.json" with { type: "json" };
+import { BL_LATEST } from "../constants/gameVersions.ts";
+import { Guild } from "../models/guildModel.ts";
+import { handleGuildGoalProgress } from "./guildService.ts";
+import { buildVersionToInt } from "../helpers/versionHelper.ts";
+import { getPrivateServerTuning } from "./privateServerTuningService.ts";
+
+type OperatorAntiqueMeta = {
+    focusAbility: string;
+    ultimateUpgrades: string[];
+};
+
+const privateServerZeroGoalCompletionScore = 100;
+const privateServerOneMissionGoalTargetsByTag: Record<string, number> = {
+    DuviriMurmurEvent: 260
+};
+
+// ══════════════════════ SOLO EVENT MILESTONE REWARDS (custom add-on) ══════════════════════
+// The Belly-of-the-Beast (JadeShadows), Atramentum (Shadowgrapher) and EightClaw (DuviriMurmur)
+// community events ship as reward-less STUB goals (Goal: 0, no InterimGoals/InterimRewards), so their
+// milestone rewards can never be granted solo. When privateServerTuning.soloEventMilestoneRewards is
+// ON, finishing one of these event missions the first time drops that event's milestone reward items
+// straight to the inbox (reusing the item lists already in the server). Off by default.
+// TO REVERT: set the config flag false, OR delete this map + the block marked "SOLO EVENT MILESTONE
+// REWARDS" in processGoalProgressUpdates below.
+const soloEventMilestoneRewardsByTag: Record<
+    string,
+    { items: string[]; sndr: string; msg: string; sub: string; icon: string }
+> = {
+    JadeShadowsEvent: {
+        items: [
+            "/Lotus/Upgrades/Skins/Effects/JadeLightEphemeraA",
+            "/Lotus/Upgrades/Skins/Effects/JadeLightEphemeraB",
+            "/Lotus/Upgrades/Skins/Effects/JadeLightEphemeraC"
+        ],
+        sndr: "/Lotus/Language/Bosses/Lotus",
+        msg: "/Lotus/Language/JadeShadows/JadeShadowsShortEventDesc",
+        sub: "/Lotus/Language/JadeShadows/JadeShadowsEventName",
+        icon: "/Lotus/Interface/Icons/WorldStatePanel/JadeShadowsEventBadge.png"
+    },
+    ShadowgrapherEvent: {
+        items: [
+            "/Lotus/Upgrades/Skins/Effects/InkEphemeraA",
+            "/Lotus/Upgrades/Skins/Effects/InkEphemeraB",
+            "/Lotus/Upgrades/Skins/Effects/InkEphemeraC",
+            "/Lotus/Upgrades/Skins/Clan/ShadowgrapherEventBadgeItem",
+            "/Lotus/Upgrades/Skins/Sigils/EventSigilShadowgrapher",
+            "/Lotus/Types/Items/ShipDecos/Props/ShadowgrapherEaselShipDeco",
+            "/Lotus/Types/Items/Titles/ShadowgrapherEventVendorTitle"
+        ],
+        sndr: "/Lotus/Language/Bosses/Lotus",
+        msg: "/Lotus/Language/Shadowgrapher/ShadowgrapherShortEventDesc",
+        sub: "/Lotus/Language/Shadowgrapher/ShadowgrapherEventName",
+        icon: "/Lotus/Interface/Icons/WorldStatePanel/OperationAntramentumIcon.png"
+    },
+    DuviriMurmurEvent: {
+        items: [
+            "/Lotus/Upgrades/Skins/Crowns/Events/IsleweaverEventCrownA",
+            "/Lotus/Upgrades/Skins/Crowns/Events/IsleweaverEventCrownB",
+            "/Lotus/Upgrades/Skins/Crowns/Events/IsleweaverEventCrownC",
+            "/Lotus/Upgrades/Skins/Clan/EightClawEventBadgeItem",
+            "/Lotus/Upgrades/Skins/Sigils/EventSigilEightClaw",
+            "/Lotus/Types/Items/ShipDecos/DominusThraxStatueDeco",
+            "/Lotus/Types/StoreItems/AvatarImages/Factions/GlyphFactionMurmur"
+        ],
+        sndr: "/Lotus/Language/Bosses/Lotus",
+        msg: "/Lotus/Language/Isleweaver/DuviriMurmurEventDescription",
+        sub: "/Lotus/Language/Isleweaver/DuviriMurmurEventTitle",
+        icon: "/Lotus/Interface/Icons/WorldStatePanel/EightClawEventBadge.png"
+    }
+};
+// ════════════════════ END SOLO EVENT MILESTONE REWARDS map ════════════════════
+
+// ══════ SOLO EVENT MILESTONE — reflect YOUR completion into the community bar ══════
+// Companion to the map above. Called from worldStateController: when the flag is on and you've
+// completed one of these events (your PersonalGoalProgress for it > 0), its community bar is shown
+// full (HealthPct = 100%). Purely cosmetic — the rewards are handled in processGoalProgressUpdates.
+// TO REVERT: set the config flag false, or delete this fn + its call in worldStateController.ts.
+export const applySoloEventBarCompletion = async (
+    worldState: ReturnType<typeof getWorldState>,
+    account: TAccountDocument
+): Promise<void> => {
+    const tuning = getPrivateServerTuning(account);
+    if (!tuning?.soloEventMilestoneRewards) return; // early-out: no DB cost when the flag is off
+    const barGoals = worldState.Goals.filter(g => g.Tag && g.Tag in soloEventMilestoneRewardsByTag);
+    if (barGoals.length == 0) return;
+    const inventory = await getInventory2(account._id, "PersonalGoalProgress");
+    for (const goal of barGoals) {
+        if (inventory.PersonalGoalProgress?.some(p => p.Tag == goal.Tag && p.Count > 0)) {
+            goal.HealthPct = 1;
+            goal.Count = 100;
+        }
+    }
+};
+// ══════ END SOLO EVENT MILESTONE bar reflection ══════
+
+const getPrivateServerOneMissionGoalTarget = (goal: {
+    Tag?: string;
+    Goal?: number;
+    BonusGoal?: number;
+    InterimGoals?: number[];
+}): number => {
+    if (goal.Tag && privateServerOneMissionGoalTargetsByTag[goal.Tag]) {
+        return privateServerOneMissionGoalTargetsByTag[goal.Tag];
+    }
+
+    const targets = [goal.Goal, goal.BonusGoal, ...(goal.InterimGoals ?? [])].filter(
+        (value): value is number => value !== undefined && Number.isFinite(value)
+    );
+    const maxTarget = targets.length > 0 ? Math.max(...targets) : 0;
+    return maxTarget > 0 ? maxTarget : privateServerZeroGoalCompletionScore;
+};
+
+const operatorAntiqueMeta: Partial<Record<string, OperatorAntiqueMeta>> = {
+    "/Lotus/Weapons/Operator/Antiques/ZenurikGrimoire/ZanurikGrimoireAntique": {
+        focusAbility: "/Lotus/Upgrades/Focus/Power/PowerFocusAbility",
+        ultimateUpgrades: [
+            "/Lotus/Upgrades/Focus/Power/Ultimate/PowerUltimateUpgrade",
+            "/Lotus/Upgrades/Focus/Power/Ultimate/PowerUltimateBlindUpgrade",
+            "/Lotus/Upgrades/Focus/Power/Ultimate/PowerUltimateBuffUpgrade",
+            "/Lotus/Upgrades/Focus/Power/Ultimate/PowerUltimateChainUpgrade",
+            "/Lotus/Upgrades/Focus/Power/Ultimate/PowerUltimateNumberUpgrade"
+        ]
+    },
+    "/Lotus/Weapons/Operator/Antiques/NaramonBlade/NaramonBladeAntique": {
+        focusAbility: "/Lotus/Upgrades/Focus/Tactic/TacticFocusAbility",
+        ultimateUpgrades: [
+            "/Lotus/Upgrades/Focus/Tactic/Active/TacticUltimateUpgrade",
+            "/Lotus/Upgrades/Focus/Tactic/Active/TacticUltimateDoubleUpgrade",
+            "/Lotus/Upgrades/Focus/Tactic/Active/TacticUltimateNumberUpgrade",
+            "/Lotus/Upgrades/Focus/Tactic/Active/TacticUltimateRangeUpgrade",
+            "/Lotus/Upgrades/Focus/Tactic/Active/TacticUltimateSizeUpgrade"
+        ]
+    },
+    "/Lotus/Weapons/Operator/Antiques/MaduraiBow/MaduraiBowAntique": {
+        focusAbility: "/Lotus/Upgrades/Focus/Attack/AttackFocusAbility",
+        ultimateUpgrades: [
+            "/Lotus/Upgrades/Focus/Attack/Ultimate/AttackUltimateUpgrade",
+            "/Lotus/Upgrades/Focus/Attack/Ultimate/AttackUltimateCooldownUpgrade",
+            "/Lotus/Upgrades/Focus/Attack/Ultimate/AttackUltimateDoubleUpgrade",
+            "/Lotus/Upgrades/Focus/Attack/Ultimate/AttackUltimateRadiusUpgrade",
+            "/Lotus/Upgrades/Focus/Attack/Ultimate/AttackUltimateStrengthUpgrade"
+        ]
+    },
+    "/Lotus/Weapons/Operator/Antiques/UnairuHammer/UniaruHammerAntique": {
+        focusAbility: "/Lotus/Upgrades/Focus/Ward/WardFocusAbility",
+        ultimateUpgrades: [
+            "/Lotus/Upgrades/Focus/Ward/Ultimate/WardUltimateUpgrade",
+            "/Lotus/Upgrades/Focus/Ward/Ultimate/WardUltimateArmorUpgrade",
+            "/Lotus/Upgrades/Focus/Ward/Ultimate/WardUltimateChanceUpgrade",
+            "/Lotus/Upgrades/Focus/Ward/Ultimate/WardUltimateRadiusUpgrade",
+            "/Lotus/Upgrades/Focus/Ward/Ultimate/WardUltimateSlamUpgrade"
+        ]
+    },
+    "/Lotus/Weapons/Operator/Antiques/VazarinStaff/VazarinStaffAntique": {
+        focusAbility: "/Lotus/Upgrades/Focus/Defense/DefenseFocusAbility",
+        ultimateUpgrades: [
+            "/Lotus/Upgrades/Focus/Defense/Ultimate/DefenseUltimateUpgrade",
+            "/Lotus/Upgrades/Focus/Defense/Ultimate/DefenseUltimateDurationUpgrade",
+            "/Lotus/Upgrades/Focus/Defense/Ultimate/DefenseUltimateElementalUpgrade",
+            "/Lotus/Upgrades/Focus/Defense/Ultimate/DefenseUltimateHealUpgrade",
+            "/Lotus/Upgrades/Focus/Defense/Ultimate/DefenseUltimateProcVulnUpgrade"
+        ]
+    }
+};
+
+const ensureOperatorSuitsRemasterData = (inventory: TInventoryDatabaseDocument): boolean => {
+    if (inventory.OperatorSuits.length != 0) {
+        return false;
+    }
+    inventory.OperatorSuits.push(
+        { ItemType: "/Lotus/Powersuits/Operator/ChildOperatorSuitRemaster", Configs: [], UpgradeVer: 101 },
+        { ItemType: "/Lotus/Powersuits/Operator/AdultOperatorSuitRemaster", Configs: [], UpgradeVer: 101 }
+    );
+    return true;
+};
+
+const setupAntique = (
+    inventory: TInventoryDatabaseDocument,
+    weaponType: string,
+    weaponId: Types.ObjectId,
+    inventoryChanges: IInventoryChanges
+): void => {
+    const meta = operatorAntiqueMeta[weaponType];
+    if (!meta) {
+        throw new Error(`unknown antique: ${weaponType}`);
+    }
+
+    handleOneTimePurchasable(inventory, weaponType, inventoryChanges);
+
+    if (!inventory.FocusUpgrades.some(x => x.ItemType === meta.focusAbility)) {
+        inventory.FocusUpgrades.push({ ItemType: meta.focusAbility });
+        inventoryChanges.FocusUpgrades ??= [];
+        inventoryChanges.FocusUpgrades.push({ ItemType: meta.focusAbility });
+    }
+    for (const upgradeType of meta.ultimateUpgrades) {
+        if (!inventory.FocusUpgrades.some(x => x.ItemType === upgradeType)) {
+            inventory.FocusUpgrades.push({ ItemType: upgradeType, Level: 0 });
+            inventoryChanges.FocusUpgrades ??= [];
+            inventoryChanges.FocusUpgrades.push({ ItemType: upgradeType, Level: 0 });
+        }
+    }
+
+    inventory.FocusLoadouts ??= [];
+    inventoryChanges.FocusLoadouts ??= [];
+    if (!inventory.FocusLoadouts.some(x => x.FocusAbility === meta.focusAbility)) {
+        inventory.FocusLoadouts.push({
+            FocusAbility: meta.focusAbility,
+            Preset: { ItemId: weaponId, mod: 0, cus: 0 }
+        });
+        inventoryChanges.FocusLoadouts.push({
+            FocusAbility: meta.focusAbility,
+            Preset: { ItemId: toOid(weaponId), mod: 0, cus: 0 }
+        });
+    }
+};
+
+export const createInventory = async (
+    accountOwnerId: Types.ObjectId,
+    loadout: TLoadoutDatabaseDocument,
+    defaultItemReferences: { loadOutPresetId: Types.ObjectId; ship: Types.ObjectId }
+): Promise<void> => {
+    try {
+        const inventory = new Inventory({
+            ...(config.inventoryDefaults ?? {}),
+            accountOwnerId: accountOwnerId,
+            LoadOutPresets: defaultItemReferences.loadOutPresetId,
+            Ships: [defaultItemReferences.ship]
+        });
+
+        inventory.LibraryAvailableDailyTaskInfo = createLibraryDailyTask(BL_LATEST);
+        inventory.RewardSeed = generateRewardSeed();
+        inventory.DuviriInfo = {
+            Seed: generateRewardSeed(),
+            NumCompletions: 0
+        };
+        ensureOperatorSuitsRemasterData(inventory);
+        await addItem(inventory, "/Lotus/Types/Friendly/PlayerControllable/Weapons/DuviriDualSwords");
+
+        if (config.skipTutorial) {
+            inventory.MadeStoryModeDecision = true;
+            inventory.PlayedParkourTutorial = true;
+            const startingGear = await addStartingGear(inventory);
+            await completeQuest(inventory, "/Lotus/Types/Keys/VorsPrize/VorsPrizeQuestKeyChain", BL_LATEST);
+            await completeQuest(inventory, "/Lotus/Types/Keys/ModQuest/ModQuestKeyChain", BL_LATEST);
+
+            loadout.NORMAL.push({
+                s: {
+                    ItemId: new Types.ObjectId(fromOid(startingGear.Suits![0].ItemId))
+                },
+                l: {
+                    ItemId: new Types.ObjectId(fromOid(startingGear.LongGuns![0].ItemId))
+                },
+                p: {
+                    ItemId: new Types.ObjectId(fromOid(startingGear.Pistols![0].ItemId))
+                },
+                m: {
+                    ItemId: new Types.ObjectId(fromOid(startingGear.Melee![0].ItemId))
+                },
+                a: {
+                    ItemId: new Types.ObjectId(fromOid(startingGear.SpecialItems![0].ItemId))
+                }
+            });
+            await loadout.save();
+
+            const completedMissions = ["SolNode27", "SolNode89", "SolNode63", "SolNode85", "SolNode15", "SolNode79"];
+
+            inventory.Missions.push(
+                ...completedMissions.map(tag => ({
+                    Completes: 1,
+                    Tag: tag
+                }))
+            );
+        }
+
+        await inventory.save();
+    } catch (error) {
+        throw new Error(`Error creating inventory: ${error instanceof Error ? error.message : "Unknown error type"}`);
+    }
+};
+
+export const addStartingGear = async (
+    inventory: TInventoryDatabaseDocument,
+    buildLabel: string = BL_LATEST,
+    startingGear?: Partial<TPartialStartingGear>
+): Promise<IInventoryChanges> => {
+    if (inventory.ReceivedStartingGear) {
+        throw new Error(`account has already received starting gear`);
+    }
+    inventory.ReceivedStartingGear = true;
+
+    const { LongGuns, Pistols, Suits, Melee } = {
+        LongGuns: [{ ItemType: "/Lotus/Weapons/Tenno/Rifle/Rifle" }],
+        Pistols: [{ ItemType: "/Lotus/Weapons/Tenno/Pistol/Pistol" }],
+        Suits: [{ ItemType: "/Lotus/Powersuits/Excalibur/Excalibur" }],
+        Melee: [{ ItemType: "/Lotus/Weapons/Tenno/Melee/LongSword/LongSword" }],
+        ...startingGear
+    };
+
+    //TODO: properly merge weapon bin changes it is currently static here
+    const inventoryChanges: IInventoryChanges = {};
+    addEquipment(inventory, "LongGuns", LongGuns[0].ItemType, { IsNew: false }, inventoryChanges);
+    addEquipment(inventory, "Pistols", Pistols[0].ItemType, { IsNew: false }, inventoryChanges);
+    if (shouldDoServerQol("tutorialGivesStanceMods", buildLabel, gameToBuildVersion["38.5.0"])) {
+        combineInventoryChanges(inventoryChanges, await addItem(inventory, Melee[0].ItemType)); // This respects defaultUpgrades
+    } else {
+        addEquipment(inventory, "Melee", Melee[0].ItemType, { IsNew: false }, inventoryChanges);
+    }
+    await addPowerSuit(inventory, Suits[0].ItemType, { IsNew: false }, buildLabel, inventoryChanges);
+    addEquipment(
+        inventory,
+        "DataKnives",
+        "/Lotus/Weapons/Tenno/HackingDevices/TnHackingDevice/TnHackingDeviceWeapon",
+        { XP: 450_000, IsNew: false },
+        inventoryChanges
+    );
+    addEquipment(
+        inventory,
+        "Scoops",
+        "/Lotus/Weapons/Tenno/Speedball/SpeedballWeaponTest",
+        { IsNew: false },
+        inventoryChanges
+    );
+
+    updateSlots(inventory, eInventorySlot.SUITS, 0, 1);
+    updateSlots(inventory, eInventorySlot.WEAPONS, 0, 3);
+    inventoryChanges.SuitBin = { count: 1, platinum: 0, Slots: -1 };
+    inventoryChanges.WeaponBin = { count: 3, platinum: 0, Slots: -3 };
+
+    await addItem(inventory, "/Lotus/Types/Keys/VorsPrize/VorsPrizeQuestKeyChain");
+    inventory.ActiveQuest = "/Lotus/Types/Keys/VorsPrize/VorsPrizeQuestKeyChain";
+
+    inventory.PremiumCredits = 50;
+    inventory.PremiumCreditsFree = 50;
+    inventoryChanges.PremiumCredits = 50;
+    inventoryChanges.PremiumCreditsFree = 50;
+    inventory.RegularCredits = 3000;
+    inventoryChanges.RegularCredits = 3000;
+
+    const awakeningRewards = [
+        "/Lotus/Types/StoreItems/AvatarImages/AvatarImageItem1",
+        "/Lotus/Types/StoreItems/AvatarImages/AvatarImageItem2",
+        "/Lotus/Types/StoreItems/AvatarImages/AvatarImageItem3",
+        "/Lotus/Types/StoreItems/AvatarImages/AvatarImageItem4",
+        "/Lotus/Types/Restoratives/LisetAutoHack"
+    ];
+
+    for (const item of awakeningRewards) {
+        const inventoryDelta = await addItem(inventory, item);
+        combineInventoryChanges(inventoryChanges, inventoryDelta);
+    }
+
+    return inventoryChanges;
+};
+
+/**
+ * Combines two inventory changes objects into one.
+ *
+ * @param InventoryChanges - will hold the combined changes
+ * @param delta - inventory changes to be added
+ */
+//TODO: this fails silently when providing an incorrect object to delta
+export const combineInventoryChanges = (InventoryChanges: IInventoryChanges, delta: IInventoryChanges): void => {
+    for (const key in delta) {
+        if (!(key in InventoryChanges)) {
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+            (InventoryChanges as Record<string, any>)[key] = (delta as Record<string, any>)[key];
+        } else if (key == "MiscItems") {
+            for (const deltaItem of delta[key]!) {
+                const existing = InventoryChanges[key]!.find(x => x.ItemType == deltaItem.ItemType);
+                if (existing) {
+                    existing.ItemCount += deltaItem.ItemCount;
+                } else {
+                    InventoryChanges[key]!.push(deltaItem);
+                }
+            }
+        } else if (Array.isArray(delta[key as keyof IInventoryChanges])) {
+            const left = InventoryChanges[key as keyof IInventoryChanges] as any[];
+            const right = delta[key as keyof IInventoryChanges] as any[];
+            for (const item of right) {
+                left.push(item);
+            }
+        } else if (slotNames.indexOf(key as TInventorySlot) != -1) {
+            const left = InventoryChanges[key as TInventorySlot]!;
+            const right = delta[key as TInventorySlot]!;
+            if (right.count) {
+                left.count ??= 0;
+                left.count += right.count;
+            }
+            if (right.platinum) {
+                left.platinum ??= 0;
+                left.platinum += right.platinum;
+            }
+            left.Slots += right.Slots;
+            if (right.Extra) {
+                left.Extra ??= 0;
+                left.Extra += right.Extra;
+            }
+        } else if (typeof delta[key as keyof IInventoryChanges] === "number") {
+            (InventoryChanges[key as keyof IInventoryChanges] as number) += delta[
+                key as keyof IInventoryChanges
+            ] as number;
+        } else {
+            throw new Error(`inventory change not merged: unhandled type for inventory key ${key}`);
+        }
+    }
+};
+
+export const getInventory = async (
+    accountOwnerId: string | Types.ObjectId,
+    projection: string | undefined
+): Promise<TInventoryDatabaseDocument> => {
+    const inventory = await Inventory.findOne({ accountOwnerId: accountOwnerId }, projection);
+
+    if (!inventory) {
+        throw new Error(`Didn't find an inventory for ${String(accountOwnerId)}`);
+    }
+
+    return inventory;
+};
+
+export const getInventory2 = async <K extends keyof TInventoryDatabaseDocument>(
+    accountOwnerId: string | Types.ObjectId,
+    ...projection: readonly K[]
+): Promise<
+    Pick<
+        TInventoryDatabaseDocument,
+        K | "save" | "toObject" | "toJSON" | "populate" | "isModified" | "get" | "set" | "validate" | "validateSync"
+    >
+> => {
+    const inventory = await Inventory.findOne({ accountOwnerId: accountOwnerId }, projection);
+
+    if (!inventory) {
+        throw new Error(`Didn't find an inventory for ${String(accountOwnerId)}`);
+    }
+
+    return inventory;
+};
+
+export const productCategoryToInventoryBin = (productCategory: string): TInventorySlot | undefined => {
+    switch (productCategory) {
+        case "Suits":
+            return eInventorySlot.SUITS;
+        case "Pistols":
+        case "LongGuns":
+        case "Melee":
+            return eInventorySlot.WEAPONS;
+        case "Sentinels":
+        case "SentinelWeapons":
+        case "KubrowPets":
+        case "MoaPets":
+            return eInventorySlot.SENTINELS;
+        case "SpaceSuits":
+        case "Hoverboards":
+            return eInventorySlot.SPACESUITS;
+        case "SpaceGuns":
+        case "SpaceMelee":
+            return eInventorySlot.SPACEWEAPONS;
+        case "OperatorAmps":
+        case "Antiques":
+            return eInventorySlot.AMPS;
+        case "CrewShipWeapons":
+        case "CrewShipWeaponSkins":
+            return eInventorySlot.RJ_COMPONENT_AND_ARMAMENTS;
+        case "MechSuits":
+            return eInventorySlot.MECHSUITS;
+        case "CrewMembers":
+            return eInventorySlot.CREWMEMBERS;
+    }
+    return undefined;
+};
+
+export const occupySlot = <ST extends TInventorySlot>(
+    inventory: Pick<TInventoryDatabaseDocument, ST>,
+    bin: ST,
+    premiumPurchase: boolean
+): IInventoryChanges => {
+    const slotChanges = {
+        Slots: 0,
+        Extra: 0
+    };
+    if (premiumPurchase) {
+        slotChanges.Extra += 1;
+    } else {
+        // { count: 1, platinum: 0, Slots: -1 }
+        slotChanges.Slots -= 1;
+    }
+    updateSlots(inventory, bin, slotChanges.Slots, slotChanges.Extra);
+    const inventoryChanges: IInventoryChanges = {};
+    inventoryChanges[bin] = slotChanges satisfies IBinChanges;
+    return inventoryChanges;
+};
+
+export const freeUpSlot = <ST extends TInventorySlot>(
+    inventory: Pick<TInventoryDatabaseDocument, ST>,
+    bin: ST
+): void => {
+    // { count: -1, platinum: 0, Slots: 1 }
+    updateSlots(inventory, bin, 1, 0);
+};
+
+export const PRE_U40_MAX_KUBROW_EGGS = 100; // capped to avoid sending an overly large array
+
+export const addItem = async (
+    inventory: TInventoryDatabaseDocument,
+    typeName: string,
+    quantity: number = 1,
+    premiumPurchase: boolean = false,
+    seed?: bigint,
+    targetFingerprint?: string,
+    exactQuantity: boolean = false,
+    buildLabel: string = BL_LATEST
+): Promise<IInventoryChanges> => {
+    // This was a temporary 2021 relay-access entitlement embedded in the TennoCon 2021 bundle.
+    // The current client no longer has either the inventory type or a StoreItem wrapper. Treating
+    // the retired access token as a no-op lets the still-valid cosmetics in that historical bundle
+    // follow their ordinary acquisition paths without inventing a persistent inventory category.
+    if (typeName == "/Lotus/Types/Items/Events/TennoConRelay2021EarlyAccess") {
+        return {};
+    }
+
+    // Bundles are technically StoreItems but a) they don't have a normal counterpart, and b) they are used in non-StoreItem contexts, e.g. email attachments.
+    if (typeName in ExportBundles) {
+        return await handleBundleAcquisition(typeName, inventory, quantity, {}, buildLabel);
+    }
+
+    // Strict typing
+    if (typeName in ExportRecipes || typeName in supplementalRecipes) {
+        const inventoryChanges: IInventoryChanges = {};
+        inventoryChanges.Recipes = [
+            {
+                ItemType: typeName,
+                ItemCount: quantity
+            } satisfies ITypeCount
+        ];
+        if (
+            (typeName in ExportRecipes && ExportRecipes[typeName].oneTimePurchasable) ||
+            (typeName in supplementalRecipes && supplementalRecipes[typeName].oneTimePurchasable)
+        ) {
+            handleOneTimePurchasable(inventory, typeName, inventoryChanges);
+        }
+        addRecipes(inventory, inventoryChanges.Recipes);
+        return inventoryChanges;
+    }
+    if (typeName in ExportResources) {
+        const inventoryChanges: IInventoryChanges = {};
+        if (ExportResources[typeName].oneTimePurchasable) {
+            handleOneTimePurchasable(inventory, typeName, inventoryChanges);
+        }
+        if (ExportResources[typeName].productCategory == "MiscItems") {
+            inventoryChanges.MiscItems = [
+                {
+                    ItemType: typeName,
+                    ItemCount: quantity
+                } satisfies IMiscItem
+            ];
+            addMiscItemsComplex(inventory, inventoryChanges.MiscItems);
+
+            if (
+                typeName == "/Lotus/Types/Game/KubrowPet/Eggs/KubrowEgg" &&
+                version_compare(buildLabel, gameToBuildVersion["40.0.0"]) < 0
+            ) {
+                if (quantity < 0 || quantity > 100) {
+                    throw new Error(
+                        `unexpected acquisition quantity of KubrowPetEggs: got ${quantity}, expected 0..100`
+                    );
+                }
+                const idBase = Math.min(
+                    inventory.MiscItems.find(x => x.ItemType == "/Lotus/Types/Game/KubrowPet/Eggs/KubrowEgg")
+                        ?.ItemCount ?? 0,
+                    PRE_U40_MAX_KUBROW_EGGS
+                );
+                inventoryChanges.KubrowPetEggs ??= [];
+                delete inventoryChanges.MiscItems;
+                for (let i = 0; i != quantity; ++i) {
+                    inventoryChanges.KubrowPetEggs.push({
+                        ItemType: "/Lotus/Types/Game/KubrowPet/Eggs/KubrowEgg",
+                        ExpirationDate: toMongoDate2(2000000000000, buildLabel),
+                        ItemId: toOid2((idBase + i).toString().padStart(24, "0"), buildLabel)
+                    });
+                }
+            }
+
+            return inventoryChanges;
+        } else if (ExportResources[typeName].productCategory == "FusionTreasures") {
+            inventoryChanges.FusionTreasures = [
+                {
+                    ItemType: typeName,
+                    ItemCount: quantity,
+                    Sockets: 0
+                } satisfies IFusionTreasure
+            ];
+            addFusionTreasures(inventory, inventoryChanges.FusionTreasures);
+            return inventoryChanges;
+        } else if (ExportResources[typeName].productCategory == "Ships") {
+            if (quantity != 1) {
+                throw new Error(`unexpected acquisition quantity of Ships: got ${quantity}, expected 1`);
+            }
+            const oid = await createShip(inventory.accountOwnerId, typeName);
+            inventory.Ships.push(oid);
+            inventoryChanges.Ships = [
+                {
+                    ItemId: { $oid: oid.toString() },
+                    ItemType: typeName
+                }
+            ];
+            return inventoryChanges;
+        } else if (ExportResources[typeName].productCategory == "CrewShips") {
+            if (quantity != 1) {
+                throw new Error(`unexpected acquisition quantity of CrewShips: got ${quantity}, expected 1`);
+            }
+            await addCrewShip(inventory, typeName, inventoryChanges);
+            // fix to unlock railjack modding, item bellow supposed to be obtained from archwing quest
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+            if (!inventory.CrewShipHarnesses?.length) {
+                addCrewShipHarness(inventory, "/Lotus/Types/Game/CrewShip/RailJack/DefaultHarness", inventoryChanges);
+            }
+            return inventoryChanges;
+        } else if (ExportResources[typeName].productCategory == "ShipDecorations") {
+            inventoryChanges.ShipDecorations = [
+                {
+                    ItemType: typeName,
+                    ItemCount: quantity
+                } satisfies IMiscItem
+            ];
+            addShipDecorations(inventory, inventoryChanges.ShipDecorations);
+            return inventoryChanges;
+        } else if (typeName.startsWith("/Lotus/Types/Items/InfestedFoundry/")) {
+            inventory.InfestedFoundry ??= {};
+            inventory.InfestedFoundry.Resources ??= [];
+            const existing = inventory.InfestedFoundry.Resources.find(resource => resource.ItemType == typeName);
+            if (existing) {
+                existing.Count += quantity;
+            } else {
+                inventory.InfestedFoundry.Resources.push({ ItemType: typeName, Count: quantity });
+            }
+            return { InfestedFoundry: inventory.toJSON<IInventoryClient>().InfestedFoundry };
+        } else if (typeName == "/Lotus/Types/JadeShadowsPart2Mission/Gameplay/Resources/HunhowTrinketMiscItem") {
+            const changes = [{ ItemType: typeName, ItemCount: quantity }];
+            addMiscItems(inventory, changes);
+            return { MiscItems: changes };
+        } else {
+            throw new Error(`unknown product category: ${ExportResources[typeName].productCategory}`);
+        }
+    }
+    if (typeName in ExportCustoms) {
+        const meta = ExportCustoms[typeName];
+        let inventoryChanges: IInventoryChanges;
+        if (meta.productCategory == "CrewShipWeaponSkins") {
+            if (meta.subroutines || meta.randomisedUpgrades) {
+                // House versions need to be identified to get stats so put them into raw salvage first.
+                const rawSalvageChanges = [
+                    {
+                        ItemType: typeName,
+                        ItemCount: quantity
+                    }
+                ];
+                addCrewShipRawSalvage(inventory, rawSalvageChanges);
+                inventoryChanges = { CrewShipRawSalvage: rawSalvageChanges };
+            } else {
+                // Sigma versions can be added directly.
+                if (quantity != 1) {
+                    throw new Error(
+                        `unexpected acquisition quantity of CrewShipWeaponSkin: got ${quantity}, expected 1`
+                    );
+                }
+                inventoryChanges = {
+                    ...addCrewShipWeaponSkin(inventory, typeName, undefined),
+                    ...occupySlot(inventory, eInventorySlot.RJ_COMPONENT_AND_ARMAMENTS, premiumPurchase)
+                };
+            }
+        } else {
+            if (quantity != 1) {
+                throw new Error(`unexpected acquisition quantity of WeaponSkins: got ${quantity}, expected 1`);
+            }
+            inventoryChanges = addSkin(inventory, typeName);
+        }
+        if (meta.additionalItems) {
+            for (const item of meta.additionalItems) {
+                combineInventoryChanges(inventoryChanges, await addItem(inventory, item));
+            }
+        }
+        return inventoryChanges;
+    }
+    if (typeName in ExportFlavour) {
+        return addCustomization(inventory, typeName);
+    }
+    if (
+        typeName in ExportUpgrades ||
+        typeName in ExportArcanes ||
+        typeName in U5Modules ||
+        typeName in supplementalUpgrades ||
+        (typeName.startsWith("/Lotus/Upgrades/Mods/") && // Fusion Core, Legendary Core
+            !typeName.startsWith("/Lotus/Upgrades/Mods/FusionBundles/")) ||
+        typeName.startsWith("/Lotus/Upgrades/CosmeticEnhancers/") || // Traumatic Peculiar
+        (typeName.endsWith("AbilityCard") && typeName.startsWith("/Lotus/Powersuits/"))
+    ) {
+        if (!targetFingerprint && typeName in U5Modules) {
+            const meta = U5Modules[typeName];
+            const equipment = getRandomWeightedReward(meta.fits, U5ModsWeights)!;
+            const upgrades = [];
+            {
+                const rolledCount = getRandomWeightedReward(meta.numUpgrades, U5ModsWeights)!.number;
+                for (let i = 0; i < rolledCount; i++) {
+                    const rolledUpgrade = getRandomWeightedReward(meta.upgrades, U5ModsWeights)!;
+                    const rolledRarity = getRandomWeightedReward(
+                        (["COMMON", "UNCOMMON", "RARE"] as const).map(rarity => ({ rarity })),
+                        U5ModsWeights
+                    )!.rarity;
+                    upgrades.push({
+                        upgrade: rolledUpgrade.type,
+                        valueRarity: rolledRarity,
+                        value: getRandomFloat(0, 1)
+                    });
+                }
+            }
+            targetFingerprint = JSON.stringify({
+                reqLevel: getRandomInt(0, 30),
+                fits: equipment.type,
+                upgrades: upgrades
+            });
+        }
+        if (targetFingerprint && typeName.startsWith("/Lotus/Upgrades/Mods/Randomized/Raw")) {
+            logger.debug(`ignoring fingerprint for raw riven mod`);
+        } else if (targetFingerprint && targetFingerprint != `{"lvl":0}`) {
+            if (quantity != 1) {
+                logger.warn(`adding 1 of ${typeName} ${targetFingerprint} even tho quantity ${quantity} was requested`);
+            }
+            const upgrade =
+                inventory.Upgrades[
+                    inventory.Upgrades.push({
+                        ItemType: typeName,
+                        UpgradeFingerprint: targetFingerprint
+                    }) - 1
+                ];
+            return { Upgrades: [upgrade.toJSON<IUpgradeClient>()] };
+        }
+        const changes = [
+            {
+                ItemType: typeName,
+                ItemCount: quantity
+            }
+        ];
+        addMods(inventory, changes);
+        return {
+            RawUpgrades: changes
+        };
+    }
+    if (typeName in ExportGear) {
+        // Multipling by purchase quantity for gear because:
+        // - The Saya's Vigil scanner message has it as a non-counted attachment.
+        // - Blueprints for Ancient Protector Specter, Shield Osprey Specter, etc. have num=1 despite giving their purchaseQuantity.
+        if (!exactQuantity) {
+            quantity *= ExportGear[typeName].purchaseQuantity ?? 1;
+            logger.debug(`non-exact acquisition of ${typeName}; factored quantity is ${quantity}`);
+        }
+        const consumablesChanges = [
+            {
+                ItemType: typeName,
+                ItemCount: quantity
+            } satisfies ITypeCount
+        ];
+        addConsumables(inventory, consumablesChanges);
+        return {
+            Consumables: consumablesChanges
+        };
+    }
+    if (typeName in ExportWeapons) {
+        const weapon = ExportWeapons[typeName];
+        const inventoryChanges: IInventoryChanges = {};
+        if (weapon.oneTimePurchasable) {
+            handleOneTimePurchasable(inventory, typeName, inventoryChanges);
+        }
+        if (weapon.totalDamage != 0) {
+            if (quantity != 1) {
+                throw new Error(
+                    `unexpected acquisition quantity of ${weapon.productCategory}: got ${quantity}, expected 1`
+                );
+            }
+            const defaultOverwrites: Partial<IEquipmentDatabase> = {};
+            if (premiumPurchase) {
+                defaultOverwrites.Features = eEquipmentFeatures.DOUBLE_CAPACITY;
+            }
+            if (weapon.maxLevelCap == 40 && typeName.indexOf("BallasSword") == -1) {
+                if (!seed) {
+                    seed = BigInt(Math.round(Math.random() * Number.MAX_SAFE_INTEGER));
+                }
+                const rng = new SRng(seed);
+                const tag = rng.randomElement([
+                    "InnateElectricityDamage",
+                    "InnateFreezeDamage",
+                    "InnateHeatDamage",
+                    "InnateImpactDamage",
+                    "InnateMagDamage",
+                    "InnateRadDamage",
+                    "InnateToxinDamage"
+                ]);
+                //const WeaponUpgradeValueAttenuationExponent = 2.25;
+                //let value = Math.pow(rng.randomFloat(), WeaponUpgradeValueAttenuationExponent);
+                let value = rng.randomFloat();
+                if (value >= 0.941428) {
+                    value = 1;
+                }
+                defaultOverwrites.UpgradeType = "/Lotus/Weapons/Grineer/KuvaLich/Upgrades/InnateDamageRandomMod";
+                defaultOverwrites.UpgradeFingerprint = JSON.stringify({
+                    compat: typeName,
+                    buffs: [
+                        {
+                            Tag: tag,
+                            Value: Math.trunc(value * 0x40000000)
+                        }
+                    ]
+                });
+            }
+            if (targetFingerprint) {
+                const targetFingerprintObj = JSON.parse(targetFingerprint) as INemesisWeaponTargetFingerprint;
+                defaultOverwrites.UpgradeType = targetFingerprintObj.ItemType;
+                defaultOverwrites.UpgradeFingerprint = JSON.stringify(targetFingerprintObj.UpgradeFingerprint);
+                defaultOverwrites.ItemName = targetFingerprintObj.Name;
+            }
+            defaultOverwrites.Configs = applyDefaultUpgrades(inventory, weapon.defaultUpgrades, inventoryChanges);
+            if (
+                weapon.bayonetOtherWeaponType && // Is this a bayonet?
+                !weapon.excludeFromMarket // Is this is the rifle half?
+            ) {
+                defaultOverwrites._id = new Types.ObjectId();
+                defaultOverwrites.AltWeaponModeId = new Types.ObjectId();
+                addEquipment(
+                    inventory,
+                    "Melee",
+                    weapon.bayonetOtherWeaponType,
+                    {
+                        _id: defaultOverwrites.AltWeaponModeId,
+                        AltWeaponModeId: defaultOverwrites._id,
+                        Features: defaultOverwrites.Features, // premium purchase puts potato in both parts
+                        IsNew: false // Not 100% sure if this is faithful, but the client seems to act a bit weird when it's set on the melee weapon.
+                    },
+                    inventoryChanges
+                );
+            }
+            addEquipment(inventory, weapon.productCategory, typeName, defaultOverwrites, inventoryChanges);
+            if (weapon.additionalItems) {
+                for (const item of weapon.additionalItems) {
+                    combineInventoryChanges(inventoryChanges, await addItem(inventory, item, 1));
+                }
+            }
+            return {
+                ...inventoryChanges,
+                ...occupySlot(
+                    inventory,
+                    productCategoryToInventoryBin(weapon.productCategory) ?? eInventorySlot.WEAPONS,
+                    premiumPurchase
+                )
+            };
+        } else if (targetFingerprint) {
+            // Sister's Hound
+            if (quantity != 1) {
+                throw new Error(`unexpected acquisition quantity of MoaPets: got ${quantity}, expected 1`);
+            }
+            const targetFingerprintObj = JSON.parse(targetFingerprint) as INemesisPetTargetFingerprint;
+            const head = targetFingerprintObj.Parts[0];
+            const defaultOverwrites: Partial<IEquipmentDatabase> = {
+                ModularParts: targetFingerprintObj.Parts,
+                ItemName: targetFingerprintObj.Name,
+                Configs: applyDefaultUpgrades(
+                    inventory,
+                    getDefaultUpgrades(targetFingerprintObj.Parts),
+                    inventoryChanges
+                )
+            };
+            const itemType = {
+                "/Lotus/Types/Friendly/Pets/ZanukaPets/ZanukaPetParts/ZanukaPetPartHeadA":
+                    "/Lotus/Types/Friendly/Pets/ZanukaPets/ZanukaPetAPowerSuit",
+                "/Lotus/Types/Friendly/Pets/ZanukaPets/ZanukaPetParts/ZanukaPetPartHeadB":
+                    "/Lotus/Types/Friendly/Pets/ZanukaPets/ZanukaPetBPowerSuit",
+                "/Lotus/Types/Friendly/Pets/ZanukaPets/ZanukaPetParts/ZanukaPetPartHeadC":
+                    "/Lotus/Types/Friendly/Pets/ZanukaPets/ZanukaPetCPowerSuit"
+            }[head] as string;
+            giveMoaPetDefaultWeapon(inventory, itemType, premiumPurchase, inventoryChanges);
+            return {
+                ...inventoryChanges,
+                ...addEquipment(inventory, "MoaPets", itemType, defaultOverwrites),
+                ...occupySlot(inventory, eInventorySlot.SENTINELS, premiumPurchase)
+            };
+        } else {
+            // Modular weapon parts
+            inventoryChanges.MiscItems = [
+                {
+                    ItemType: typeName,
+                    ItemCount: quantity
+                } satisfies IMiscItem
+            ];
+            addMiscItems(inventory, inventoryChanges.MiscItems);
+            return inventoryChanges;
+        }
+    }
+    if (typeName in ExportRailjackWeapons) {
+        const meta = ExportRailjackWeapons[typeName];
+        if (meta.defaultUpgrades?.length) {
+            // House versions need to be identified to get stats so put them into raw salvage first.
+            const rawSalvageChanges = [
+                {
+                    ItemType: typeName,
+                    ItemCount: quantity
+                }
+            ];
+            addCrewShipRawSalvage(inventory, rawSalvageChanges);
+            return { CrewShipRawSalvage: rawSalvageChanges };
+        } else {
+            // Sigma versions can be added directly.
+            if (quantity != 1) {
+                throw new Error(`unexpected acquisition quantity of CrewShipWeapon: got ${quantity}, expected 1`);
+            }
+            return {
+                ...addEquipment(inventory, meta.productCategory, typeName),
+                ...occupySlot(inventory, eInventorySlot.RJ_COMPONENT_AND_ARMAMENTS, premiumPurchase)
+            };
+        }
+    }
+    if (typeName in ExportCreditBundles) {
+        const creditsTotal = ExportCreditBundles[typeName].credits * quantity;
+        inventory.RegularCredits += creditsTotal;
+        return {
+            RegularCredits: creditsTotal
+        };
+    }
+    if (typeName in ExportFusionBundles) {
+        const fusionPointsTotal = ExportFusionBundles[typeName].fusionPoints * quantity;
+        addFusionPoints(inventory, fusionPointsTotal);
+        return {
+            FusionPoints: fusionPointsTotal
+        };
+    }
+    if (typeName in ExportKeys || typeName in supplementalKeys) {
+        // Note: "/Lotus/Types/Keys/" contains some EmailItems
+        const key = getKey(typeName, buildLabel)!;
+
+        if (key.chainStages) {
+            if (quantity != 1) {
+                throw new Error(`unexpected acquisition quantity of QuestKeys: got ${quantity}, expected 1`);
+            }
+            const key = addQuestKey(inventory, { ItemType: typeName });
+            if (!key) return {};
+            return { QuestKeys: [key] };
+        } else {
+            const levelKeyChanges = [{ ItemType: typeName, ItemCount: quantity }];
+            addLevelKeys(inventory, levelKeyChanges);
+            return { LevelKeys: levelKeyChanges };
+        }
+    }
+    if (typeName in ExportDrones) {
+        // Can only get 1 at a time from crafting, but for convenience's sake, allow up 100 to via the WebUI.
+        if (quantity < 0 || quantity > 100) {
+            throw new Error(`unexpected acquisition quantity of Drones: got ${quantity}, expected 0..100`);
+        }
+        const inventoryChanges: IInventoryChanges = {};
+        for (let i = 0; i != quantity; ++i) {
+            addDrone(inventory, typeName, inventoryChanges);
+        }
+        return inventoryChanges;
+    }
+    if (typeName in ExportEmailItems) {
+        if (quantity != 1) {
+            throw new Error(`unexpected acquisition quantity of EmailItems: got ${quantity}, expected 1`);
+        }
+        return await addEmailItem(inventory, typeName);
+    }
+
+    // Boosters are an odd case. They're only added like this via Baro's Void Surplus afaik.
+    {
+        const boosterEntry = Object.entries(ExportBoosters).find(arr => arr[1].typeName == typeName);
+        if (boosterEntry) {
+            addBooster(typeName, quantity, inventory);
+            return {
+                Boosters: [{ ItemType: typeName, ExpiryDate: quantity }]
+            };
+        }
+    }
+
+    // Current-client cosmetics can precede Public Export. The generated record is accepted only after
+    // the metadata updater proved an exact localized inventory/store pair and one of OpenWF's three
+    // supported cosmetic bins, so package-only cosmetics still use the normal inventory mutation.
+    const generatedCosmetic = getGeneratedCosmetic(typeName);
+    if (generatedCosmetic) {
+        switch (generatedCosmetic.productCategory) {
+            case "WeaponSkins":
+                if (quantity != 1) {
+                    throw new Error(`unexpected acquisition quantity of Skins: got ${quantity}, expected 1`);
+                }
+                return addSkin(inventory, typeName);
+            case "FlavourItems":
+                if (quantity != 1) {
+                    throw new Error(`unexpected acquisition quantity of FlavourItems: got ${quantity}, expected 1`);
+                }
+                return addCustomization(inventory, typeName);
+            case "ShipDecorations": {
+                const changes = [{ ItemType: typeName, ItemCount: quantity }];
+                addShipDecorations(inventory, changes);
+                return { ShipDecorations: changes };
+            }
+        }
+    }
+
+    // Current-client count-bin items can precede Public Export. These adapters use the exact
+    // ProductCategory and effective metadata preserved by the updater; complex equipment stays on
+    // its existing structured creation route.
+    const generatedItem = getGeneratedItem(typeName);
+    if (generatedItem) {
+        switch (generatedItem.productCategory) {
+            case "Recipes": {
+                const changes = [{ ItemType: typeName, ItemCount: quantity }];
+                if (generatedItem.effectiveMetadata?.OneTimePurchasable == "1") {
+                    const inventoryChanges: IInventoryChanges = { Recipes: changes };
+                    handleOneTimePurchasable(inventory, typeName, inventoryChanges);
+                    addRecipes(inventory, changes);
+                    return inventoryChanges;
+                }
+                addRecipes(inventory, changes);
+                return { Recipes: changes };
+            }
+            case "FocusUpgrades": {
+                const existing = inventory.FocusUpgrades.find(upgrade => upgrade.ItemType == typeName);
+                if (existing) return {};
+                const change = typeName.endsWith("FocusAbility")
+                    ? { ItemType: typeName }
+                    : { ItemType: typeName, Level: 0 };
+                inventory.FocusUpgrades.push(change);
+                return { FocusUpgrades: [change] };
+            }
+            case "CreditBundles": {
+                const regularPrice = Number(generatedItem.effectiveMetadata?.RegularPrice);
+                if (!Number.isSafeInteger(regularPrice) || regularPrice >= 0) {
+                    throw new Error(`credit bundle has no exact negative RegularPrice: ${typeName}`);
+                }
+                const creditsTotal = regularPrice * -quantity;
+                if (!Number.isSafeInteger(creditsTotal) || creditsTotal < 0) {
+                    throw new Error(`credit bundle quantity exceeds the safe integer range: ${typeName}`);
+                }
+                inventory.RegularCredits += creditsTotal;
+                return { RegularCredits: creditsTotal };
+            }
+            case "Consumables": {
+                if (
+                    typeName != "/Lotus/Types/Restoratives/Consumable/GuildGlyphConsumableNoCharges" &&
+                    typeName != "/Lotus/Types/Restoratives/Consumable/SurgeEximusBall"
+                ) {
+                    break;
+                }
+                const changes = [{ ItemType: typeName, ItemCount: quantity }];
+                addConsumables(inventory, changes);
+                return { Consumables: changes };
+            }
+            case "MiscItems": {
+                if (
+                    !typeName.startsWith("/Lotus/Types/Items/SongItems/") &&
+                    !typeName.startsWith("/Lotus/Types/Recipes/LandingCraftRecipes/NightwaveShip/")
+                ) {
+                    break;
+                }
+                const changes = [{ ItemType: typeName, ItemCount: quantity }];
+                const inventoryChanges: IInventoryChanges = { MiscItems: changes };
+                if (generatedItem.effectiveMetadata?.OneTimePurchasable == "1") {
+                    handleOneTimePurchasable(inventory, typeName, inventoryChanges);
+                }
+                addMiscItems(inventory, changes);
+                return inventoryChanges;
+            }
+            case "DataKnives": {
+                if (quantity != 1) {
+                    throw new Error(`unexpected acquisition quantity of DataKnives: got ${quantity}, expected 1`);
+                }
+                return addEquipment(inventory, "DataKnives", typeName);
+            }
+        }
+    }
+
+    // Path-based duck typing
+    switch (typeName.substring(1).split("/")[1]) {
+        case "Powersuits":
+            if (typeName.endsWith("AugmentCard")) break;
+            switch (typeName.substring(1).split("/")[2]) {
+                default: {
+                    if (quantity != 1) {
+                        throw new Error(`unexpected acquisition quantity of Suits: got ${quantity}, expected 1`);
+                    }
+                    if (typeName == "/Lotus/Powersuits/Excalibur/DoomSwordCYUmbra") {
+                        const inventoryChanges: IInventoryChanges = {};
+                        addSpecialItem(inventory, typeName, inventoryChanges);
+                        return inventoryChanges;
+                    }
+                    return {
+                        ...(await addPowerSuit(
+                            inventory,
+                            typeName,
+                            {
+                                Features: premiumPurchase ? eEquipmentFeatures.DOUBLE_CAPACITY : undefined
+                            },
+                            buildLabel
+                        )),
+                        ...occupySlot(inventory, eInventorySlot.SUITS, premiumPurchase)
+                    };
+                }
+                case "Archwing": {
+                    if (quantity != 1) {
+                        throw new Error(`unexpected acquisition quantity of SpaceSuits: got ${quantity}, expected 1`);
+                    }
+                    inventory.ArchwingEnabled = true;
+                    return {
+                        ...addSpaceSuit(
+                            inventory,
+                            typeName,
+                            {},
+                            premiumPurchase ? eEquipmentFeatures.DOUBLE_CAPACITY : undefined
+                        ),
+                        ...occupySlot(inventory, eInventorySlot.SPACESUITS, premiumPurchase)
+                    };
+                }
+                case "EntratiMech": {
+                    if (quantity != 1) {
+                        throw new Error(`unexpected acquisition quantity of MechSuits: got ${quantity}, expected 1`);
+                    }
+                    return {
+                        ...(await addMechSuit(
+                            inventory,
+                            typeName,
+                            {},
+                            premiumPurchase ? eEquipmentFeatures.DOUBLE_CAPACITY : undefined
+                        )),
+                        ...occupySlot(inventory, eInventorySlot.MECHSUITS, premiumPurchase)
+                    };
+                }
+            }
+            break;
+        case "Upgrades": {
+            switch (typeName.substring(1).split("/")[2]) {
+                case "Boons":
+                    // Can purchase /Lotus/Upgrades/Boons/DuviriVendorBoonItem from Acrithis, doesn't need to be added to inventory.
+                    logger.debug(`acquisition of ${typeName} is not committed to inventory`);
+                    return {};
+
+                case "Stickers":
+                    {
+                        const entry = inventory.RawUpgrades.find(x => x.ItemType == typeName);
+                        if (entry && entry.ItemCount >= 10) {
+                            logger.debug(`adding ${quantity} pix chip(s) instead of ${typeName}`);
+                            const miscItemChanges = [
+                                {
+                                    ItemType: "/Lotus/Types/Items/MiscItems/1999ConquestBucks",
+                                    ItemCount: quantity
+                                }
+                            ];
+                            addMiscItems(inventory, miscItemChanges);
+                            return {
+                                MiscItems: miscItemChanges
+                            };
+                        } else {
+                            const changes = [
+                                {
+                                    ItemType: typeName,
+                                    ItemCount: quantity
+                                }
+                            ];
+                            addMods(inventory, changes);
+                            return {
+                                RawUpgrades: changes
+                            };
+                        }
+                    }
+                    break;
+
+                case "Skins": {
+                    if (quantity != 1) {
+                        throw new Error(`unexpected acquisition quantity of Skins: got ${quantity}, expected 1`);
+                    }
+                    return addSkin(inventory, typeName);
+                }
+            }
+            break;
+        }
+        case "Types":
+            switch (typeName.substring(1).split("/")[2]) {
+                case "Sentinels": {
+                    if (quantity != 1) {
+                        throw new Error(`unexpected acquisition quantity of Sentinels: got ${quantity}, expected 1`);
+                    }
+                    return addSentinel(inventory, typeName, premiumPurchase);
+                }
+                case "Game":
+                case "JadeShadowsPart2Mission": {
+                    if (typeName.substring(1).split("/")[3] == "Projections") {
+                        // Void Relics, e.g. /Lotus/Types/Game/Projections/T2VoidProjectionGaussPrimeDBronze
+                        const miscItemChanges = [
+                            {
+                                ItemType: typeName,
+                                ItemCount: quantity
+                            } satisfies IMiscItem
+                        ];
+                        addMiscItems(inventory, miscItemChanges);
+                        inventory.HasOwnedVoidProjectionsPreviously = true;
+                        return {
+                            MiscItems: miscItemChanges
+                        };
+                    } else if (
+                        typeName.substring(1).split("/")[3] == "CatbrowPet" ||
+                        typeName.substring(1).split("/")[3] == "KubrowPet"
+                    ) {
+                        if (typeName == "/Lotus/Types/Game/CatbrowPet/VampireKavatTraitPrint") {
+                            const inventoryChanges: IInventoryChanges = {};
+                            for (let i = 0; i != quantity; ++i) {
+                                addKubrowPetPrint(
+                                    inventory,
+                                    typeName,
+                                    {
+                                        Name: "",
+                                        IsMale: false,
+                                        Size: 1,
+                                        DominantTraits: {
+                                            BaseColor: "/Lotus/Types/Game/CatbrowPet/Colors/CatbrowPetColorBaseVampire",
+                                            SecondaryColor:
+                                                "/Lotus/Types/Game/CatbrowPet/Colors/CatbrowPetColorSecondaryVampire",
+                                            TertiaryColor:
+                                                "/Lotus/Types/Game/CatbrowPet/Colors/CatbrowPetColorTertiaryVampire",
+                                            AccentColor:
+                                                "/Lotus/Types/Game/CatbrowPet/Colors/CatbrowPetColorAccentsVampire",
+                                            EyeColor: "/Lotus/Types/Game/CatbrowPet/Colors/CatbrowPetColorEyesVamp",
+                                            FurPattern:
+                                                "/Lotus/Types/Game/CatbrowPet/Patterns/CatbrowPetPatternVampire",
+                                            Personality: "/Lotus/Types/Game/CatbrowPet/VampireCatbrowPetPowerSuit",
+                                            BodyType:
+                                                "/Lotus/Types/Game/CatbrowPet/BodyTypes/CatbrowPetVampireBodyType",
+                                            Head: "/Lotus/Types/Game/CatbrowPet/Heads/CatbrowHeadVampire",
+                                            Tail: "/Lotus/Types/Game/CatbrowPet/Tails/CatbrowTailVampire"
+                                        },
+                                        RecessiveTraits: {}
+                                    },
+                                    inventoryChanges
+                                );
+                            }
+                            return inventoryChanges;
+                        } else if (
+                            typeName != "/Lotus/Types/Game/KubrowPet/Eggs/KubrowEgg" &&
+                            typeName != "/Lotus/Types/Game/KubrowPet/Eggs/KubrowPetEggItem" &&
+                            typeName != "/Lotus/Types/Game/KubrowPet/BlankTraitPrint" &&
+                            typeName != "/Lotus/Types/Game/KubrowPet/ImprintedTraitPrint"
+                        ) {
+                            if (quantity != 1) {
+                                throw new Error(
+                                    `unexpected acquisition quantity of KubrowPet: got ${quantity}, expected 1`
+                                );
+                            }
+                            return addKubrowPet(inventory, typeName, undefined, premiumPurchase, {}, buildLabel);
+                        }
+                    } else if (
+                        typeName.startsWith("/Lotus/Types/Game/CrewShip/CrewMember/") ||
+                        typeName.startsWith("/Lotus/Types/JadeShadowsPart2Mission/CrewMembers/")
+                    ) {
+                        if (quantity != 1) {
+                            throw new Error(
+                                `unexpected acquisition quantity of CrewMember: got ${quantity}, expected 1`
+                            );
+                        }
+                        if (!seed) {
+                            throw new Error(`Expected crew member to have a seed`);
+                        }
+                        seed |= BigInt(getAccountRandSeed(inventory)) << 32n;
+                        return {
+                            ...addCrewMember(inventory, typeName, seed),
+                            ...occupySlot(inventory, eInventorySlot.CREWMEMBERS, premiumPurchase)
+                        };
+                    } else if (typeName == "/Lotus/Types/Game/CrewShip/RailJack/DefaultHarness") {
+                        if (quantity != 1) {
+                            throw new Error(
+                                `unexpected acquisition quantity of CrewShipHarness: got ${quantity}, expected 1`
+                            );
+                        }
+                        return addCrewShipHarness(inventory, typeName);
+                    }
+                    break;
+                }
+                case "Items": {
+                    const itemCategory = typeName.substring(1).split("/")[3];
+                    if (itemCategory == "Emotes" || itemCategory == "Titles") {
+                        if (quantity != 1) {
+                            throw new Error(
+                                `unexpected acquisition quantity of FlavourItems: got ${quantity}, expected 1`
+                            );
+                        }
+                        return addCustomization(inventory, typeName);
+                    } else if (itemCategory == "ShipDecos") {
+                        const shipDecorationChanges = [{ ItemType: typeName, ItemCount: quantity }];
+                        addShipDecorations(inventory, shipDecorationChanges);
+                        return { ShipDecorations: shipDecorationChanges };
+                    } else if (typeName.substring(1).split("/")[3] == "MiscItems") {
+                        const miscItemChanges = [
+                            {
+                                ItemType: typeName,
+                                ItemCount: quantity
+                            } satisfies IMiscItem
+                        ];
+                        addMiscItems(inventory, miscItemChanges);
+                        return { MiscItems: miscItemChanges };
+                    }
+                    break;
+                }
+                case "StoreItems": {
+                    const storeItemCategory = typeName.substring(1).split("/")[3];
+                    if (storeItemCategory == "AvatarImages" || storeItemCategory == "SuitCustomizations") {
+                        if (quantity != 1) {
+                            throw new Error(
+                                `unexpected acquisition quantity of FlavourItems: got ${quantity}, expected 1`
+                            );
+                        }
+                        return addCustomization(inventory, typeName);
+                    }
+                    break;
+                }
+                case "NeutralCreatures": {
+                    if (inventory.Horses.length != 0) {
+                        logger.warn("refusing to add Horse because account already has one");
+                        return {};
+                    }
+                    if (quantity != 1) {
+                        throw new Error(`unexpected acquisition quantity of Horses: got ${quantity}, expected 1`);
+                    }
+                    const horseIndex = inventory.Horses.push({ ItemType: typeName });
+                    return {
+                        Horses: [inventory.Horses[horseIndex - 1].toJSON<IEquipmentClient>()]
+                    };
+                }
+                case "Vehicles":
+                    if (typeName == "/Lotus/Types/Vehicles/Motorcycle/MotorcyclePowerSuit") {
+                        if (quantity != 1) {
+                            throw new Error(`unexpected acquisition quantity of Vehicles: got ${quantity}, expected 1`);
+                        }
+                        return addMotorcycle(inventory, typeName);
+                    }
+                    break;
+                case "Lore":
+                    if (typeName == "/Lotus/Types/Lore/Fragments/GrineerGhoulFragments/GhoulFragmentRewards") {
+                        if (quantity != 1) {
+                            throw new Error(
+                                `unexpected acquisition quantity of LoreFragmentScans: got ${quantity}, expected 1`
+                            );
+                        }
+                        const fragmentType = getRandomElement([
+                            "/Lotus/Types/Lore/Fragments/GrineerGhoulFragments/GhoulFragmentA",
+                            "/Lotus/Types/Lore/Fragments/GrineerGhoulFragments/GhoulFragmentB",
+                            "/Lotus/Types/Lore/Fragments/GrineerGhoulFragments/GhoulFragmentC",
+                            "/Lotus/Types/Lore/Fragments/GrineerGhoulFragments/GhoulFragmentD",
+                            "/Lotus/Types/Lore/Fragments/GrineerGhoulFragments/GhoulFragmentE",
+                            "/Lotus/Types/Lore/Fragments/GrineerGhoulFragments/GhoulFragmentF",
+                            "/Lotus/Types/Lore/Fragments/GrineerGhoulFragments/GhoulFragmentG",
+                            "/Lotus/Types/Lore/Fragments/GrineerGhoulFragments/GhoulFragmentH",
+                            "/Lotus/Types/Lore/Fragments/GrineerGhoulFragments/GhoulFragmentI",
+                            "/Lotus/Types/Lore/Fragments/GrineerGhoulFragments/GhoulFragmentJ",
+                            "/Lotus/Types/Lore/Fragments/GrineerGhoulFragments/GhoulFragmentK",
+                            "/Lotus/Types/Lore/Fragments/GrineerGhoulFragments/GhoulFragmentL",
+                            "/Lotus/Types/Lore/Fragments/GrineerGhoulFragments/GhoulFragmentM"
+                        ])!;
+                        addLoreFragmentScans(inventory, [
+                            {
+                                Progress: 1,
+                                Region: "",
+                                ItemType: fragmentType
+                            }
+                        ]);
+                        return {};
+                    }
+                    break;
+                case "Keys":
+                    if (typeName.endsWith("Key") || typeName.substring(1).split("/")[3] == "RaidKeys") {
+                        const levelKeyChanges = [{ ItemType: typeName, ItemCount: quantity }];
+                        addLevelKeys(inventory, levelKeyChanges);
+                        return { LevelKeys: levelKeyChanges };
+                    }
+                    break;
+                case "Recipes":
+                    if (typeName == "/Lotus/Types/Recipes/CosmeticUnenhancerItem") {
+                        const miscItemChanges = [
+                            {
+                                ItemType: typeName,
+                                ItemCount: quantity
+                            } satisfies IMiscItem
+                        ];
+                        addMiscItems(inventory, miscItemChanges);
+                        return {
+                            MiscItems: miscItemChanges
+                        };
+                    }
+                    break;
+            }
+            break;
+        case "Weapons": {
+            if (typeName.substring(1).split("/")[4] == "MeleeTrees") break;
+            if (typeName.substring(1).split("/")[2] == "CrewShip") {
+                const itemTypeToCount: Record<string, number> = {
+                    "/Lotus/Weapons/CrewShip/MultitoolAmmoItem": 50,
+                    "/Lotus/Weapons/CrewShip/EnergyAmmoItem": 100,
+                    "/Lotus/Weapons/CrewShip/Missiles/MissileAmmoItem": 5,
+                    "/Lotus/Weapons/CrewShip/Laser/MegaLaserAmmoItem": 1
+                };
+                if (typeName in itemTypeToCount) {
+                    const inventoryChanges = {
+                        CrewShipAmmo: [
+                            {
+                                ItemType: typeName.replace("AmmoItem", "Ammo"),
+                                ItemCount: itemTypeToCount[typeName] * quantity
+                            }
+                        ]
+                    };
+
+                    addCrewShipAmmo(inventory, inventoryChanges.CrewShipAmmo);
+                    return inventoryChanges;
+                }
+            }
+            const productCategory = typeName.substring(1).split("/")[3];
+            switch (productCategory) {
+                case "Pistols":
+                case "LongGuns":
+                case "Melee": {
+                    if (quantity != 1) {
+                        throw new Error(
+                            `unexpected acquisition quantity of ${productCategory}: got ${quantity}, expected 1`
+                        );
+                    }
+                    const inventoryChanges = addEquipment(inventory, productCategory, typeName);
+                    return {
+                        ...inventoryChanges,
+                        ...occupySlot(
+                            inventory,
+                            productCategoryToInventoryBin(productCategory) ?? eInventorySlot.WEAPONS,
+                            premiumPurchase
+                        )
+                    };
+                }
+                case "Antiques": {
+                    if (quantity != 1) {
+                        throw new Error(`unexpected acquisition quantity of Antiques: got ${quantity}, expected 1`);
+                    }
+                    const priorLen = inventory.Antiques.length;
+                    const inventoryChanges = addEquipment(inventory, "Antiques", typeName, {
+                        UpgradeVer: 101,
+                        Configs: [{}, {}, {}]
+                    });
+                    const added = inventory.Antiques[priorLen];
+                    setupAntique(inventory, typeName, added._id, inventoryChanges);
+                    return {
+                        ...inventoryChanges,
+                        ...occupySlot(
+                            inventory,
+                            productCategoryToInventoryBin(productCategory) ?? eInventorySlot.AMPS,
+                            premiumPurchase
+                        )
+                    };
+                }
+                case "OperatorAmplifiers": {
+                    if (quantity != 1) {
+                        throw new Error(`unexpected acquisition quantity of OperatorAmps: got ${quantity}, expected 1`);
+                    }
+                    let defaultOverrides = {};
+                    if (
+                        typeName ==
+                        "/Lotus/Weapons/Sentients/OperatorAmplifiers/SentTrainingAmplifier/OperatorTrainingAmpWeapon"
+                    ) {
+                        defaultOverrides = {
+                            ModularParts: [
+                                "/Lotus/Weapons/Sentients/OperatorAmplifiers/SentTrainingAmplifier/SentAmpTrainingGrip",
+                                "/Lotus/Weapons/Sentients/OperatorAmplifiers/SentTrainingAmplifier/SentAmpTrainingChassis",
+                                "/Lotus/Weapons/Sentients/OperatorAmplifiers/SentTrainingAmplifier/SentAmpTrainingBarrel"
+                            ]
+                        };
+                    }
+                    const inventoryChanges = addEquipment(inventory, "OperatorAmps", typeName, defaultOverrides);
+                    return {
+                        ...inventoryChanges,
+                        ...occupySlot(inventory, eInventorySlot.AMPS, premiumPurchase)
+                    };
+                }
+            }
+            break;
+        }
+    }
+    throw new Error(`unable to add item: ${typeName}`);
+};
+
+export const addItems = async (
+    inventory: TInventoryDatabaseDocument,
+    items: readonly ITypeCount[] | readonly string[],
+    inventoryChanges: IInventoryChanges = {}
+): Promise<IInventoryChanges> => {
+    let inventoryDelta;
+    for (const item of items) {
+        if (typeof item === "string") {
+            inventoryDelta = await addItem(inventory, item, 1, true);
+        } else {
+            inventoryDelta = await addItem(inventory, item.ItemType, item.ItemCount, true);
+        }
+        combineInventoryChanges(inventoryChanges, inventoryDelta);
+    }
+    return inventoryChanges;
+};
+
+export const applyDefaultUpgrades = (
+    inventory: TInventoryDatabaseDocument,
+    defaultUpgrades: readonly IDefaultUpgrade[] | undefined,
+    inventoryChanges: IInventoryChanges
+): IItemConfigDatabase[] => {
+    const modsToGive: IRawUpgrade[] = [];
+    const configs: IItemConfigDatabase[] = [];
+    if (defaultUpgrades) {
+        const upgrades = [];
+        for (const defaultUpgrade of defaultUpgrades) {
+            modsToGive.push({ ItemType: defaultUpgrade.ItemType, ItemCount: 1 });
+            if (defaultUpgrade.Slot != -1) {
+                while (upgrades.length < defaultUpgrade.Slot) {
+                    upgrades.push("");
+                }
+                upgrades[defaultUpgrade.Slot] = defaultUpgrade.ItemType;
+            }
+        }
+        if (upgrades.length != 0) {
+            configs.push({ Upgrades: upgrades });
+        }
+    }
+    if (modsToGive.length != 0) {
+        addMods(inventory, modsToGive);
+        inventoryChanges.RawUpgrades ??= [];
+        for (const mod of modsToGive) {
+            inventoryChanges.RawUpgrades.push(mod);
+        }
+    }
+    return configs;
+};
+
+export const giveMoaPetDefaultWeapon = (
+    inventory: TInventoryDatabaseDocument,
+    moaPetsItemType: string,
+    premiumPurchase: boolean,
+    inventoryChanges: IInventoryChanges
+): void => {
+    const weapon = ExportSentinels[moaPetsItemType].defaultWeapon;
+    if (weapon) {
+        const category = ExportWeapons[weapon].productCategory;
+        addEquipment(inventory, category, weapon, undefined, inventoryChanges);
+        combineInventoryChanges(
+            inventoryChanges,
+            occupySlot(inventory, productCategoryToInventoryBin(category)!, premiumPurchase)
+        );
+    }
+};
+
+//TODO: maybe genericMethod for all the add methods, they share a lot of logic
+const addSentinel = (
+    inventory: TInventoryDatabaseDocument,
+    sentinelName: string,
+    premiumPurchase: boolean,
+    inventoryChanges: IInventoryChanges = {}
+): IInventoryChanges => {
+    // Sentinel itself occupies a slot in the sentinels bin
+    combineInventoryChanges(inventoryChanges, occupySlot(inventory, eInventorySlot.SENTINELS, premiumPurchase));
+
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (ExportSentinels[sentinelName]?.defaultWeapon) {
+        addSentinelWeapon(inventory, ExportSentinels[sentinelName].defaultWeapon, premiumPurchase, inventoryChanges);
+    }
+
+    const configs: IItemConfig[] = applyDefaultUpgrades(
+        inventory,
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+        ExportSentinels[sentinelName]?.defaultUpgrades,
+        inventoryChanges
+    );
+
+    const sentinelIndex =
+        inventory.Sentinels.push({
+            ItemType: sentinelName,
+            Configs: configs,
+            XP: 0,
+            Features: premiumPurchase ? eEquipmentFeatures.DOUBLE_CAPACITY : undefined,
+            IsNew: inventory.Sentinels.find(x => x.ItemType == sentinelName) ? undefined : true
+        }) - 1;
+    inventoryChanges.Sentinels ??= [];
+    inventoryChanges.Sentinels.push(inventory.Sentinels[sentinelIndex].toJSON<IEquipmentClient>());
+
+    return inventoryChanges;
+};
+
+const addSentinelWeapon = (
+    inventory: TInventoryDatabaseDocument,
+    typeName: string,
+    premiumPurchase: boolean,
+    inventoryChanges: IInventoryChanges
+): void => {
+    // Sentinel weapons also occupy a slot in the sentinels bin
+    combineInventoryChanges(inventoryChanges, occupySlot(inventory, eInventorySlot.SENTINELS, premiumPurchase));
+
+    const index = inventory.SentinelWeapons.push({ ItemType: typeName, XP: 0 }) - 1;
+    inventoryChanges.SentinelWeapons ??= [];
+    inventoryChanges.SentinelWeapons.push(inventory.SentinelWeapons[index].toJSON<IEquipmentClient>());
+};
+
+export const addPowerSuit = async (
+    inventory: TInventoryDatabaseDocument,
+    powersuitName: string,
+    defaultOverwrites?: Partial<IEquipmentDatabase>,
+    buildLabel: string = BL_LATEST,
+    inventoryChanges: IInventoryChanges = {}
+): Promise<IInventoryChanges> => {
+    const powersuit = getPowerSuit(powersuitName);
+    const exalted = powersuit?.exalted ?? [];
+    for (const specialItem of exalted) {
+        addSpecialItem(inventory, specialItem, inventoryChanges);
+    }
+    if (powersuit?.additionalItems) {
+        for (const item of powersuit.additionalItems) {
+            if (exalted.indexOf(item) == -1) {
+                combineInventoryChanges(inventoryChanges, await addItem(inventory, item, 1));
+            }
+        }
+    }
+    let configs: IItemConfig[] = [];
+    if (version_compare(buildLabel, gameToBuildVersion["15.0.0"]) < 0) {
+        if (powersuitName in suitDefaultUpgrades) {
+            configs = applyDefaultUpgrades(inventory, suitDefaultUpgrades[powersuitName], inventoryChanges);
+        }
+    }
+    const suit: Omit<IEquipmentDatabase, "_id"> = Object.assign(
+        {
+            ItemType: powersuitName,
+            Configs: configs,
+            UpgradeVer: 101,
+            XP: 0,
+            IsNew: true
+        },
+        defaultOverwrites
+    );
+    if (suit.IsNew) {
+        suit.IsNew = !inventory.Suits.find(x => x.ItemType == powersuitName);
+    }
+    if (!suit.IsNew) {
+        suit.IsNew = undefined;
+    }
+    const suitIndex = inventory.Suits.push(suit) - 1;
+    inventoryChanges.Suits ??= [];
+    inventoryChanges.Suits.push(inventory.Suits[suitIndex].toJSON<IEquipmentClient>());
+    return inventoryChanges;
+};
+
+const addMechSuit = async (
+    inventory: TInventoryDatabaseDocument,
+    mechsuitName: string,
+    inventoryChanges: IInventoryChanges = {},
+    features?: number
+): Promise<IInventoryChanges> => {
+    const powersuit = getPowerSuit(mechsuitName);
+    const exalted = powersuit?.exalted ?? [];
+    for (const specialItem of exalted) {
+        addSpecialItem(inventory, specialItem, inventoryChanges);
+    }
+    if (powersuit?.additionalItems) {
+        for (const item of powersuit.additionalItems) {
+            if (exalted.indexOf(item) == -1) {
+                combineInventoryChanges(inventoryChanges, await addItem(inventory, item, 1));
+            }
+        }
+    }
+    const suitIndex =
+        inventory.MechSuits.push({
+            ItemType: mechsuitName,
+            Configs: [],
+            UpgradeVer: 101,
+            XP: 0,
+            Features: features,
+            IsNew: inventory.MechSuits.find(x => x.ItemType == mechsuitName) ? undefined : true
+        }) - 1;
+    inventoryChanges.MechSuits ??= [];
+    inventoryChanges.MechSuits.push(inventory.MechSuits[suitIndex].toJSON<IEquipmentClient>());
+    return inventoryChanges;
+};
+
+export const addSpecialItem = (
+    inventory: Pick<TInventoryDatabaseDocument, "SpecialItems">,
+    itemName: string,
+    inventoryChanges: IInventoryChanges
+): void => {
+    if (inventory.SpecialItems.find(x => x.ItemType == itemName)) {
+        return;
+    }
+    const specialItemIndex =
+        inventory.SpecialItems.push({
+            ItemType: itemName,
+            Configs: [],
+            Features: 1,
+            UpgradeVer: 101,
+            XP: 0
+        }) - 1;
+    inventoryChanges.SpecialItems ??= [];
+    inventoryChanges.SpecialItems.push(inventory.SpecialItems[specialItemIndex].toJSON<IEquipmentClient>());
+};
+
+const addSpaceSuit = (
+    inventory: TInventoryDatabaseDocument,
+    spacesuitName: string,
+    inventoryChanges: IInventoryChanges = {},
+    features?: number
+): IInventoryChanges => {
+    const suitIndex =
+        inventory.SpaceSuits.push({
+            ItemType: spacesuitName,
+            Configs: [],
+            UpgradeVer: 101,
+            XP: 0,
+            Features: features,
+            IsNew: inventory.SpaceSuits.find(x => x.ItemType == spacesuitName) ? undefined : true
+        }) - 1;
+    inventoryChanges.SpaceSuits ??= [];
+    inventoryChanges.SpaceSuits.push(inventory.SpaceSuits[suitIndex].toJSON<IEquipmentClient>());
+    return inventoryChanges;
+};
+
+const createRandomTraits = (kubrowPetName: string, traitsPool: TTraitsPool): ITraits => {
+    return {
+        BaseColor: getRandomWeightedReward(traitsPool.Colors, kubrowWeights)!.type,
+        SecondaryColor: getRandomWeightedReward(traitsPool.Colors, kubrowWeights)!.type,
+        TertiaryColor: getRandomWeightedReward(traitsPool.Colors, kubrowWeights)!.type,
+        AccentColor: getRandomWeightedReward(traitsPool.Colors, kubrowWeights)!.type,
+        EyeColor: getRandomWeightedReward(traitsPool.EyeColors, kubrowWeights)!.type,
+        FurPattern: getRandomWeightedReward(traitsPool.FurPatterns, kubrowFurPatternsWeights)!.type,
+        Personality: kubrowPetName,
+        BodyType: getRandomWeightedReward(traitsPool.BodyTypes, kubrowWeights)!.type,
+        Head: traitsPool.Heads.length ? getRandomWeightedReward(traitsPool.Heads, kubrowWeights)!.type : undefined,
+        Tail: traitsPool.Tails.length ? getRandomWeightedReward(traitsPool.Tails, kubrowWeights)!.type : undefined
+    };
+};
+
+export const addKubrowPet = (
+    inventory: TInventoryDatabaseDocument,
+    kubrowPetName: string,
+    details: IKubrowPetDetailsDatabase | undefined,
+    premiumPurchase: boolean,
+    inventoryChanges: IInventoryChanges,
+    buildLabel: string
+): IInventoryChanges => {
+    const isPreU28 = version_compare(buildLabel, gameToBuildVersion["28.0.0"]) < 0;
+    const isPreU26 = version_compare(buildLabel, gameToBuildVersion["26.0.0"]) < 0;
+    const questCompleted = inventory.QuestKeys.some(x => x.ItemType.endsWith("KubrowQuestKeyChain") && x.Completed);
+
+    combineInventoryChanges(
+        inventoryChanges,
+        occupySlot(inventory, isPreU28 ? eInventorySlot.PETS : eInventorySlot.SENTINELS, premiumPurchase)
+    );
+
+    // TODO: When incubating, this should only be given when claiming the recipe.
+    const kubrowPet = ExportSentinels[kubrowPetName] as ISentinel | undefined;
+    const exalted = kubrowPet?.exalted ?? [];
+    for (const specialItem of exalted) {
+        addSpecialItem(inventory, specialItem, inventoryChanges);
+    }
+
+    const configs: IItemConfig[] = applyDefaultUpgrades(inventory, kubrowPet?.defaultUpgrades, inventoryChanges);
+
+    if (!details) {
+        const isCatbrow = [
+            "/Lotus/Types/Game/CatbrowPet/CheshireCatbrowPetPowerSuit",
+            "/Lotus/Types/Game/CatbrowPet/MirrorCatbrowPetPowerSuit",
+            "/Lotus/Types/Game/CatbrowPet/VampireCatbrowPetPowerSuit"
+        ].includes(kubrowPetName);
+
+        const traitsPool = isCatbrow ? catbrowDetails : kubrowDetails;
+        let dominantTraits: ITraits;
+        if (kubrowPetName == "/Lotus/Types/Game/CatbrowPet/VampireCatbrowPetPowerSuit") {
+            dominantTraits = {
+                BaseColor: "/Lotus/Types/Game/CatbrowPet/Colors/CatbrowPetColorBaseVampire",
+                SecondaryColor: "/Lotus/Types/Game/CatbrowPet/Colors/CatbrowPetColorSecondaryVampire",
+                TertiaryColor: "/Lotus/Types/Game/CatbrowPet/Colors/CatbrowPetColorTertiaryVampire",
+                AccentColor: "/Lotus/Types/Game/CatbrowPet/Colors/CatbrowPetColorAccentsVampire",
+                EyeColor: "/Lotus/Types/Game/CatbrowPet/Colors/CatbrowPetColorBaseA",
+                FurPattern: "/Lotus/Types/Game/CatbrowPet/Patterns/CatbrowPetPatternVampire",
+                Personality: kubrowPetName,
+                BodyType: "/Lotus/Types/Game/CatbrowPet/BodyTypes/CatbrowPetVampireBodyType",
+                Head: "/Lotus/Types/Game/CatbrowPet/Heads/CatbrowHeadVampire",
+                Tail: "/Lotus/Types/Game/CatbrowPet/Tails/CatbrowTailVampire"
+            };
+        } else {
+            dominantTraits = createRandomTraits(kubrowPetName, traitsPool);
+            if (kubrowPetName == "/Lotus/Types/Game/KubrowPet/ChargerKubrowPetPowerSuit") {
+                dominantTraits.BodyType = "/Lotus/Types/Game/KubrowPet/BodyTypes/ChargerKubrowPetBodyType";
+                dominantTraits.FurPattern = "/Lotus/Types/Game/KubrowPet/Patterns/KubrowPetPatternInfested";
+            }
+        }
+
+        const recessiveTraits: ITraits = createRandomTraits(
+            getRandomElement(
+                isCatbrow
+                    ? [
+                          "/Lotus/Types/Game/CatbrowPet/MirrorCatbrowPetPowerSuit",
+                          "/Lotus/Types/Game/CatbrowPet/CheshireCatbrowPetPowerSuit"
+                      ]
+                    : [
+                          "/Lotus/Types/Game/KubrowPet/AdventurerKubrowPetPowerSuit",
+                          "/Lotus/Types/Game/KubrowPet/FurtiveKubrowPetPowerSuit",
+                          "/Lotus/Types/Game/KubrowPet/GuardKubrowPetPowerSuit",
+                          "/Lotus/Types/Game/KubrowPet/HunterKubrowPetPowerSuit",
+                          "/Lotus/Types/Game/KubrowPet/RetrieverKubrowPetPowerSuit"
+                      ]
+            )!,
+            traitsPool
+        );
+        for (const key of Object.keys(recessiveTraits) as (keyof ITraits)[]) {
+            // My heurstic approximation is a 20% chance for a dominant trait to be copied into the recessive traits. TODO: A more scientific statistical analysis maybe?
+            if (Math.random() < 0.2) {
+                recessiveTraits[key] = dominantTraits[key]!;
+            }
+        }
+
+        details = {
+            Name: "",
+            IsPuppy: !premiumPurchase,
+            HasCollar: isCatbrow || questCompleted,
+            PrintsRemaining: !isPreU26 && isCatbrow ? 3 : 2,
+            Status: premiumPurchase ? eStatus.StatusStasis : eStatus.StatusIncubating,
+            HatchDate: premiumPurchase ? new Date() : new Date(Date.now() + 10 * unixTimesInMs.hour), // On live, this seems to be somewhat randomised so that the pet hatches 9~11 hours after start. TOVERIFY: Although it might differ for the quest recipe?
+            IsMale: !!getRandomInt(0, 1),
+            Size: getRandomInt(70, 100) / 100,
+            DominantTraits: dominantTraits,
+            RecessiveTraits: recessiveTraits
+        };
+    }
+
+    const kubrowPetIndex =
+        inventory.KubrowPets.push({
+            ItemType: kubrowPetName,
+            Configs: configs,
+            XP: 0,
+            Details: details,
+            IsNew: inventory.KubrowPets.find(x => x.ItemType == kubrowPetName) ? undefined : true
+        }) - 1;
+    inventoryChanges.KubrowPets ??= [];
+    inventoryChanges.KubrowPets.push(inventory.KubrowPets[kubrowPetIndex].toJSON<IEquipmentClient>());
+
+    return inventoryChanges;
+};
+
+export const addKubrowPetPrint = (
+    inventory: TInventoryDatabaseDocument,
+    typeName: string,
+    details: IKubrowGenetics,
+    inventoryChanges: IInventoryChanges
+): void => {
+    inventoryChanges.KubrowPetPrints ??= [];
+    inventoryChanges.KubrowPetPrints.push(
+        inventory.KubrowPetPrints[
+            inventory.KubrowPetPrints.push({
+                ItemType: typeName,
+                Name: details.Name,
+                IsMale: details.IsMale,
+                Size: details.Size,
+                DominantTraits: details.DominantTraits,
+                RecessiveTraits: details.RecessiveTraits
+            }) - 1
+        ].toJSON<IKubrowPetPrintClient>()
+    );
+};
+
+export const updateSlots = <ST extends TInventorySlot>(
+    inventory: Pick<TInventoryDatabaseDocument, ST>,
+    slotName: ST,
+    slotAmount: number,
+    extraAmount: number
+): void => {
+    inventory[slotName].Slots += slotAmount;
+    if (extraAmount != 0) {
+        inventory[slotName].Extra ??= 0;
+        inventory[slotName].Extra += extraAmount;
+    }
+};
+
+export const CurrencyType = {
+    CREDITS: false,
+    PLATINUM: true,
+    PAID_PLATINUM: 2
+} as const;
+
+type TCurrencyType = (typeof CurrencyType)[keyof typeof CurrencyType];
+
+export const updateCurrency = (
+    inventory: TInventoryDatabaseDocument,
+    price: number,
+    currencyType: TCurrencyType,
+    inventoryChanges: IInventoryChanges = {}
+): IInventoryChanges => {
+    return currencyType == CurrencyType.CREDITS
+        ? updateCredits(inventory, price, inventoryChanges)
+        : updatePlatinum(inventory, price, currencyType == CurrencyType.PAID_PLATINUM, inventoryChanges);
+};
+
+export const updateCredits = (
+    inventory: Pick<TInventoryDatabaseDocument, "infiniteCredits" | "RegularCredits">,
+    price: number,
+    inventoryChanges: IInventoryChanges = {}
+): IInventoryChanges => {
+    if (price != 0 && !inventory.infiniteCredits) {
+        if (price > inventory.RegularCredits) {
+            throw new Error(`Cannot subtract ${price} credits, would be left with ${inventory.RegularCredits - price}`);
+        }
+        inventoryChanges.RegularCredits ??= 0;
+        inventoryChanges.RegularCredits -= price;
+        inventory.RegularCredits -= price;
+        logger.debug(`currency changes`, { RegularCredits: -price });
+    }
+    return inventoryChanges;
+};
+
+export const updatePlatinum = (
+    inventory: Pick<TInventoryDatabaseDocument, "infinitePlatinum" | "PremiumCreditsFree" | "PremiumCredits">,
+    price: number,
+    mustBePaidPlatinum?: boolean,
+    inventoryChanges: IInventoryChanges = {}
+): IInventoryChanges => {
+    if (price != 0 && !inventory.infinitePlatinum) {
+        if (price > 0) {
+            if (mustBePaidPlatinum) {
+                const paidPlatinumBalance = inventory.PremiumCredits - inventory.PremiumCreditsFree;
+                if (price > paidPlatinumBalance) {
+                    throw new Error(
+                        `Cannot subtract ${price} paid platinum, would be left with ${paidPlatinumBalance - price}`
+                    );
+                }
+            } else if (inventory.PremiumCreditsFree > 0) {
+                const premiumCreditsFreeDelta = Math.min(price, inventory.PremiumCreditsFree) * -1;
+                inventoryChanges.PremiumCreditsFree ??= 0;
+                inventoryChanges.PremiumCreditsFree += premiumCreditsFreeDelta;
+                inventory.PremiumCreditsFree += premiumCreditsFreeDelta;
+                logger.debug(`spending ${-premiumCreditsFreeDelta} starter plat`);
+            }
+            if (price > inventory.PremiumCredits) {
+                throw new Error(
+                    `Cannot subtract ${price} platinum, would be left with ${inventory.PremiumCredits - price}`
+                );
+            }
+        }
+        inventoryChanges.PremiumCredits ??= 0;
+        inventoryChanges.PremiumCredits -= price;
+        inventory.PremiumCredits -= price;
+        logger.debug(`currency changes`, { PremiumCredits: -price });
+    }
+    return inventoryChanges;
+};
+
+export const addFusionPoints = (
+    inventory: Pick<TInventoryDatabaseDocument, "infiniteEndo" | "FusionPoints">,
+    add: number
+): number => {
+    if (inventory.infiniteEndo) {
+        add = 0;
+    } else {
+        if (inventory.FusionPoints + add > 2147483647) {
+            logger.warn(`capping FusionPoints balance at 2147483647`);
+            add = 2147483647 - inventory.FusionPoints;
+        }
+        inventory.FusionPoints += add;
+    }
+    return add;
+};
+
+export const addCrewShipFusionPoints = (
+    inventory: Pick<TInventoryDatabaseDocument, "infiniteDirac" | "CrewShipFusionPoints">,
+    add: number
+): number => {
+    if (inventory.infiniteDirac) {
+        add = 0;
+    } else {
+        if (inventory.CrewShipFusionPoints + add > 2147483647) {
+            logger.warn(`capping CrewShipFusionPoints balance at 2147483647`);
+            add = 2147483647 - inventory.CrewShipFusionPoints;
+        }
+        inventory.CrewShipFusionPoints += add;
+    }
+    return add;
+};
+
+const standingLimitBinToInventoryKey: Record<
+    Exclude<TStandingLimitBin, "STANDING_LIMIT_BIN_NONE">,
+    keyof IDailyAffiliations
+> = {
+    STANDING_LIMIT_BIN_NORMAL: "DailyAffiliation",
+    STANDING_LIMIT_BIN_PVP: "DailyAffiliationPvp",
+    STANDING_LIMIT_BIN_LIBRARY: "DailyAffiliationLibrary",
+    STANDING_LIMIT_BIN_CETUS: "DailyAffiliationCetus",
+    STANDING_LIMIT_BIN_QUILLS: "DailyAffiliationQuills",
+    STANDING_LIMIT_BIN_SOLARIS: "DailyAffiliationSolaris",
+    STANDING_LIMIT_BIN_VENTKIDS: "DailyAffiliationVentkids",
+    STANDING_LIMIT_BIN_VOX: "DailyAffiliationVox",
+    STANDING_LIMIT_BIN_ENTRATI: "DailyAffiliationEntrati",
+    STANDING_LIMIT_BIN_NECRALOID: "DailyAffiliationNecraloid",
+    STANDING_LIMIT_BIN_ZARIMAN: "DailyAffiliationZariman",
+    STANDING_LIMIT_BIN_KAHL: "DailyAffiliationKahl",
+    STANDING_LIMIT_BIN_CAVIA: "DailyAffiliationCavia",
+    STANDING_LIMIT_BIN_HEX: "DailyAffiliationHex"
+};
+
+export const allDailyAffiliationKeys: (keyof IDailyAffiliations)[] = Object.values(standingLimitBinToInventoryKey);
+
+const getStandingLimit = (inventory: TInventoryDatabaseDocument, bin: TStandingLimitBin): number => {
+    if (bin == "STANDING_LIMIT_BIN_NONE" || inventory.noDailyStandingLimits) {
+        return Number.MAX_SAFE_INTEGER;
+    }
+    return inventory[standingLimitBinToInventoryKey[bin]];
+};
+
+const updateStandingLimit = (
+    inventory: TInventoryDatabaseDocument,
+    bin: TStandingLimitBin,
+    subtrahend: number
+): void => {
+    if (bin != "STANDING_LIMIT_BIN_NONE" && !inventory.noDailyStandingLimits) {
+        inventory[standingLimitBinToInventoryKey[bin]] -= subtrahend;
+    }
+};
+
+export const eStandingSource = {
+    Medallion: 0b101, // Effect on daily cap depends on syndicate. Propagates to aligned syndicates.
+    Alignment: 0b010, // Applies & updates daily cap. Does not propagate to aligned syndicates (to avoid infinite recursion).
+    Misc: 0b011 // Applies & updates daily cap. Propagates to aligned syndicates.
+};
+type TStandingSource = (typeof eStandingSource)[keyof typeof eStandingSource];
+
+export const addStanding = async (
+    inventory: TInventoryDatabaseDocument,
+    buildLabel: string,
+    syndicateTag: string,
+    gainedStanding: number,
+    affiliationMods: IAffiliationMods[] = [],
+    source: TStandingSource = eStandingSource.Misc
+): Promise<void> => {
+    let syndicate = inventory.Affiliations.find(x => x.Tag == syndicateTag);
+    const syndicateMeta = (await getSyndicate(syndicateTag, buildLabel))!;
+
+    if (!syndicate) {
+        syndicate =
+            inventory.Affiliations[inventory.Affiliations.push({ Tag: syndicateTag, Standing: 0, Title: 0 }) - 1];
+    }
+
+    const max = getMaxStanding(syndicateMeta, syndicate.Title ?? 0);
+    if (syndicate.Standing + gainedStanding > max) gainedStanding = max - syndicate.Standing;
+
+    if (syndicate.Standing + gainedStanding < -71000) {
+        gainedStanding = -71000 - syndicate.Standing;
+    }
+
+    if ((source == eStandingSource.Medallion && syndicateMeta.medallionsCappedByDailyLimit) || source & 0b010) {
+        if (gainedStanding > getStandingLimit(inventory, syndicateMeta.dailyLimitBin)) {
+            gainedStanding = getStandingLimit(inventory, syndicateMeta.dailyLimitBin);
+        }
+        updateStandingLimit(inventory, syndicateMeta.dailyLimitBin, gainedStanding);
+    }
+
+    syndicate.Standing += gainedStanding;
+    const affiliationMod: IAffiliationMods = {
+        Tag: syndicateTag,
+        Standing: gainedStanding
+    };
+    affiliationMods.push(affiliationMod);
+
+    if (syndicateMeta.alignments) {
+        if (source & 0b001) {
+            for (const [tag, factor] of Object.entries(syndicateMeta.alignments)) {
+                await addStanding(
+                    inventory,
+                    buildLabel,
+                    tag,
+                    gainedStanding * factor,
+                    affiliationMods,
+                    eStandingSource.Alignment
+                );
+            }
+        } else {
+            while (syndicate.Standing < getMinStanding(syndicateMeta, syndicate.Title ?? 0)) {
+                syndicate.Title ??= 0;
+                syndicate.Title -= 1;
+                affiliationMod.Title ??= 0;
+                affiliationMod.Title -= 1;
+                logger.debug(`${syndicateTag} is decreasing to title ${syndicate.Title} after applying alignment`);
+            }
+        }
+    }
+};
+
+// TODO: AffiliationMods support (Nightwave).
+export const updateGeneric = async (
+    accountId: string | Types.ObjectId,
+    data: IGenericUpdate
+): Promise<IUpdateNodeIntrosResponse> => {
+    const inventory = await getInventory(
+        accountId,
+        "NodeIntrosCompleted MiscItems ShipDecorations FlavourItems WeaponSkins"
+    );
+
+    // Make it an array for easier parsing.
+    if (typeof data.NodeIntrosCompleted === "string") {
+        data.NodeIntrosCompleted = [data.NodeIntrosCompleted];
+    }
+
+    const inventoryChanges: IInventoryChanges = {};
+    for (const node of data.NodeIntrosCompleted) {
+        if (inventory.NodeIntrosCompleted.indexOf(node) != -1) {
+            continue;
+        }
+
+        // [OLD]BabyName_A[NEW]BabyName_B_1782322823
+        if (node.startsWith("[OLD]") && node.includes("[NEW]")) {
+            const parts = node.slice(5).split("[NEW]");
+            if (parts.length === 2) {
+                const oldNode = parts[0];
+                const newNode = parts[1];
+                const index = inventory.NodeIntrosCompleted.indexOf(oldNode);
+                if (index !== -1) {
+                    inventory.NodeIntrosCompleted[index] = newNode;
+                    logger.debug(`changed ${oldNode} to ${newNode}`);
+                }
+            }
+        } else {
+            inventory.NodeIntrosCompleted.push(node);
+            logger.debug(`completed popup/dialogue/cutscene for ${node}`);
+        }
+
+        if (node == "TL21Start") {
+            await createMessage(accountId, [
+                {
+                    sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+                    msg: "",
+                    sub: "/Lotus/Language/Alerts/LotusGiftDesc",
+                    icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+                    highPriority: true,
+                    att: ["/Lotus/Upgrades/Skins/Weapons/Staff/TnRibbonStaffSkin"]
+                }
+            ]);
+        } else if (node == "TL21End") {
+            await createMessage(accountId, [
+                {
+                    sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+                    msg: "",
+                    sub: "/Lotus/Language/Alerts/LotusGiftDesc",
+                    icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+                    highPriority: true,
+                    att: ["/Lotus/Types/StoreItems/Packages/TannukaiBundle"]
+                }
+            ]);
+        } else if (node == "TC2025") {
+            inventoryChanges.ShipDecorations = [
+                {
+                    ItemType: "/Lotus/Types/Items/ShipDecos/TauGrineerLancerBobbleHead",
+                    ItemCount: 1
+                }
+            ];
+            addShipDecorations(inventory, inventoryChanges.ShipDecorations);
+        } else if (node == "TC2026") {
+            inventoryChanges.ShipDecorations = [
+                {
+                    ItemType: "/Lotus/Types/Items/ShipDecos/LisetPropCleaningDroneGrineer",
+                    ItemCount: 1
+                }
+            ];
+            addShipDecorations(inventory, inventoryChanges.ShipDecorations);
+        } else if (node == "KayaFirstVisitPack") {
+            inventoryChanges.MiscItems = [
+                {
+                    ItemType: "/Lotus/Types/Items/MiscItems/1999FixedStickersPack",
+                    ItemCount: 1
+                }
+            ];
+            addMiscItems(inventory, inventoryChanges.MiscItems);
+        } else if (node == "BeatCaliberChicks") {
+            await addEmailItem(inventory, "/Lotus/Types/Items/EmailItems/BeatCaliberChicksEmailItem", inventoryChanges);
+        } else if (node == "ClearedFiveLoops") {
+            await addEmailItem(inventory, "/Lotus/Types/Items/EmailItems/ClearedFiveLoopsEmailItem", inventoryChanges);
+        } else if (node == "NokkoVisions_AllCompleted") {
+            addCustomization(
+                inventory,
+                "/Lotus/Types/StoreItems/AvatarImages/Warframes/NokkoBabySecretGlyph",
+                inventoryChanges
+            );
+            addSkin(inventory, "/Lotus/Upgrades/Skins/Clan/NokkoBabySecretEmblemItem", inventoryChanges);
+        }
+    }
+    await inventory.save();
+
+    return {
+        MissionRewards: [],
+        InventoryChanges: inventoryChanges
+    };
+};
+
+export const addEquipment = <K extends TEquipmentKey>(
+    inventory: Pick<TInventoryDatabaseDocument, K>,
+    category: K,
+    type: string,
+    defaultOverwrites?: Partial<IEquipmentDatabase>,
+    inventoryChanges: IInventoryChanges = {}
+): IInventoryChanges => {
+    const equipment: Omit<IEquipmentDatabase, "_id"> = Object.assign(
+        {
+            ItemType: type,
+            Configs: [],
+            XP: 0,
+            IsNew: category != "CrewShipWeapons" && category != "CrewShipSalvagedWeapons"
+        },
+        defaultOverwrites
+    );
+    if (equipment.IsNew) {
+        equipment.IsNew = !inventory[category].find(x => x.ItemType == type);
+    }
+    if (!equipment.IsNew) {
+        equipment.IsNew = undefined;
+    }
+    const index = inventory[category].push(equipment) - 1;
+
+    inventoryChanges[category] ??= [];
+    inventoryChanges[category].push(inventory[category][index].toJSON<IEquipmentClient>());
+    return inventoryChanges;
+};
+
+const addCustomization = (
+    inventory: TInventoryDatabaseDocument,
+    customizationName: string,
+    inventoryChanges: IInventoryChanges = {}
+): IInventoryChanges => {
+    if (!inventory.FlavourItems.some(x => x.ItemType == customizationName)) {
+        const flavourItemIndex = inventory.FlavourItems.push({ ItemType: customizationName }) - 1;
+        inventoryChanges.FlavourItems ??= [];
+        inventoryChanges.FlavourItems.push(inventory.FlavourItems[flavourItemIndex].toJSON<IFlavourItem>());
+    }
+    return inventoryChanges;
+};
+
+export const addSkin = (
+    inventory: Pick<TInventoryDatabaseDocument, "WeaponSkins" | "BountyScore">,
+    typeName: string,
+    inventoryChanges: IInventoryChanges = {}
+): IInventoryChanges => {
+    if (typeName == "/Lotus/Upgrades/Skins/Clan/BountyHunterBadgeItem") {
+        logger.debug(`stratos emblem, increasing bounty score`);
+        inventory.BountyScore ??= 0;
+        inventory.BountyScore += 1;
+    }
+
+    // https://onlyg.it/OpenWF/SpaceNinjaServer/issues/3941
+    const rightArmor = getCurrentPairedRightArmor(typeName, itemType => itemType in ExportCustoms);
+    if (rightArmor) {
+        // Some current paired armours are represented by one LeftArmor record.
+        // Older exports had a separate RightArmor item. Never manufacture a
+        // client-invalid inventory entry when the current export merged it.
+        addSkin(inventory, rightArmor, inventoryChanges);
+    }
+
+    if (inventory.WeaponSkins.some(x => x.ItemType == typeName)) {
+        logger.debug(`refusing to add WeaponSkin ${typeName} because account already owns it`);
+    } else {
+        const index =
+            inventory.WeaponSkins.push({
+                ItemType: typeName,
+                IsNew: typeName.startsWith("/Lotus/Upgrades/Skins/RailJack/") ? undefined : true // railjack skins are incompatible with this flag
+            }) - 1;
+        inventoryChanges.WeaponSkins ??= [];
+        inventoryChanges.WeaponSkins.push(inventory.WeaponSkins[index].toJSON<IWeaponSkinClient>());
+    }
+    return inventoryChanges;
+};
+
+export const addCrewShipWeaponSkin = (
+    inventory: Pick<TInventoryDatabaseDocument, "CrewShipWeaponSkins">,
+    typeName: string,
+    upgradeFingerprint: string | undefined,
+    inventoryChanges: IInventoryChanges = {}
+): IInventoryChanges => {
+    const index =
+        inventory.CrewShipWeaponSkins.push({ ItemType: typeName, UpgradeFingerprint: upgradeFingerprint }) - 1;
+    inventoryChanges.CrewShipWeaponSkins ??= [];
+    inventoryChanges.CrewShipWeaponSkins.push(inventory.CrewShipWeaponSkins[index].toJSON<IUpgradeClient>());
+    return inventoryChanges;
+};
+
+export const addCrewShipSalvagedWeaponSkin = (
+    inventory: TInventoryDatabaseDocument,
+    typeName: string,
+    upgradeFingerprint: string | undefined,
+    inventoryChanges: IInventoryChanges = {}
+): IInventoryChanges => {
+    const index =
+        inventory.CrewShipSalvagedWeaponSkins.push({ ItemType: typeName, UpgradeFingerprint: upgradeFingerprint }) - 1;
+    inventoryChanges.CrewShipSalvagedWeaponSkins ??= [];
+    inventoryChanges.CrewShipSalvagedWeaponSkins.push(
+        inventory.CrewShipSalvagedWeaponSkins[index].toJSON<IUpgradeClient>()
+    );
+    return inventoryChanges;
+};
+
+const addCrewShip = async (
+    inventory: TInventoryDatabaseDocument,
+    typeName: string,
+    inventoryChanges: IInventoryChanges = {}
+): Promise<IInventoryChanges> => {
+    if (inventory.CrewShips.length != 0) {
+        logger.warn("refusing to add CrewShip because account already has one");
+    } else {
+        const index = inventory.CrewShips.push({ ItemType: typeName }) - 1;
+        inventoryChanges.CrewShips ??= [];
+        inventoryChanges.CrewShips.push(inventory.CrewShips[index].toJSON<IEquipmentClient>());
+        const railjackQuest = inventory.QuestKeys.find(
+            qk => qk.ItemType === "/Lotus/Types/Keys/RailJackBuildQuest/RailjackBuildQuestKeyChain"
+        );
+        if (!railjackQuest || !railjackQuest.Completed) {
+            const questChanges = await completeQuest(
+                inventory,
+                "/Lotus/Types/Keys/RailJackBuildQuest/RailjackBuildQuestKeyChain",
+                BL_LATEST,
+                false
+            );
+            if (questChanges) {
+                inventoryChanges.QuestKeys ??= [];
+                inventoryChanges.QuestKeys.push(questChanges);
+            }
+        }
+    }
+    return inventoryChanges;
+};
+
+const addCrewShipHarness = (
+    inventory: TInventoryDatabaseDocument,
+    typeName: string,
+    inventoryChanges: IInventoryChanges = {}
+): IInventoryChanges => {
+    if (inventory.CrewShipHarnesses.length != 0) {
+        logger.warn("refusing to add CrewShipHarness because account already has one");
+    } else {
+        const index = inventory.CrewShipHarnesses.push({ ItemType: typeName }) - 1;
+        inventoryChanges.CrewShipHarnesses ??= [];
+        inventoryChanges.CrewShipHarnesses.push(inventory.CrewShipHarnesses[index].toJSON<IEquipmentClient>());
+    }
+    return inventoryChanges;
+};
+
+const addMotorcycle = (
+    inventory: TInventoryDatabaseDocument,
+    typeName: string,
+    inventoryChanges: IInventoryChanges = {}
+): IInventoryChanges => {
+    if (inventory.Motorcycles.length != 0) {
+        logger.warn("refusing to add Motorcycle because account already has one");
+    } else {
+        const index = inventory.Motorcycles.push({ ItemType: typeName }) - 1;
+        inventoryChanges.Motorcycles ??= [];
+        inventoryChanges.Motorcycles.push(inventory.Motorcycles[index].toJSON<IEquipmentClient>());
+    }
+    return inventoryChanges;
+};
+
+const addDrone = (
+    inventory: TInventoryDatabaseDocument,
+    typeName: string,
+    inventoryChanges: IInventoryChanges = {}
+): IInventoryChanges => {
+    const index = inventory.Drones.push({ ItemType: typeName, CurrentHP: ExportDrones[typeName].durability }) - 1;
+    inventoryChanges.Drones ??= [];
+    inventoryChanges.Drones.push(inventory.Drones[index].toJSON<IDroneClient>());
+    return inventoryChanges;
+};
+
+const getAccountRandSeed = (inventory: TInventoryDatabaseDocument): number => {
+    return parseInt(inventory.accountOwnerId.toString().substring(2, 8), 16);
+};
+
+/*export const getCrewMemberSkills = (seed: bigint, skillPointsToAssign: number): Record<string, number> => {
+    const rng = new SRng(seed);
+
+    const skills = ["PILOTING", "GUNNERY", "ENGINEERING", "COMBAT", "SURVIVABILITY"];
+    for (let i = 1; i != 5; ++i) {
+        const swapIndex = rng.randomInt(0, i);
+        if (swapIndex != i) {
+            const tmp = skills[i];
+            skills[i] = skills[swapIndex];
+            skills[swapIndex] = tmp;
+        }
+    }
+
+    rng.randomFloat(); // unused afaict
+
+    const skillAssignments = [0, 0, 0, 0, 0];
+    for (let skill = 0; skillPointsToAssign; skill = (skill + 1) % 5) {
+        const maxIncrease = Math.min(5 - skillAssignments[skill], skillPointsToAssign);
+        const increase = rng.randomInt(0, maxIncrease);
+        skillAssignments[skill] += increase;
+        skillPointsToAssign -= increase;
+    }
+
+    skillAssignments.sort((a, b) => b - a);
+
+    const combined: Record<string, number> = {};
+    for (let i = 0; i != 5; ++i) {
+        combined[skills[i]] = skillAssignments[i];
+    }
+    return combined;
+};*/
+
+const addCrewMember = (
+    inventory: TInventoryDatabaseDocument,
+    itemType: string,
+    seed: bigint,
+    inventoryChanges: IInventoryChanges = {}
+): IInventoryChanges => {
+    // SkillEfficiency is additional to the base stats, so we don't need to compute this
+    //const skillPointsToAssign = itemType.endsWith("Strong") ? 12 : itemType.indexOf("Medium") != -1 ? 10 : 8;
+    //const skills = getCrewMemberSkills(seed, skillPointsToAssign);
+
+    // Arbiters = male
+    // CephalonSuda = female
+    // NewLoka = female
+    // Perrin = male
+    // RedVeil = male
+    // SteelMeridian = female
+    // JadeShadowsPart2Mission doesn't have powersuit type
+    const powersuitType = !itemType.includes("JadeShadowsPart2Mission")
+        ? itemType.includes("Arbiters") || itemType.includes("Perrin") || itemType.includes("RedVeil")
+            ? "/Lotus/Powersuits/NpcPowersuits/CrewMemberMaleSuit"
+            : "/Lotus/Powersuits/NpcPowersuits/CrewMemberFemaleSuit"
+        : undefined;
+
+    const index =
+        inventory.CrewMembers.push({
+            ItemType: itemType,
+            NemesisFingerprint: 0n,
+            Seed: seed,
+            SkillEfficiency: {
+                PILOTING: { Assigned: 0 },
+                GUNNERY: { Assigned: 0 },
+                ENGINEERING: { Assigned: 0 },
+                COMBAT: { Assigned: 0 },
+                SURVIVABILITY: { Assigned: 0 }
+            },
+            PowersuitType: powersuitType
+        }) - 1;
+    inventoryChanges.CrewMembers ??= [];
+    inventoryChanges.CrewMembers.push(inventory.CrewMembers[index].toJSON<ICrewMemberClient>());
+    return inventoryChanges;
+};
+
+export const addEmailItem = async (
+    inventory: Pick<
+        TInventoryDatabaseDocument,
+        "accountOwnerId" | "EmailItems" | "AdultOperatorLoadOuts" | "OperatorSuits"
+    >,
+    typeName: string,
+    inventoryChanges: IInventoryChanges = {},
+    buildLabel: string = BL_LATEST
+): Promise<IInventoryChanges> => {
+    const meta = ExportEmailItems[typeName];
+    const emailItem = inventory.EmailItems.find(x => x.ItemType == typeName);
+    if (!emailItem || !meta.sendOnlyOnce) {
+        const msg: IMessageCreationTemplate = convertInboxMessage(meta.message);
+        if (
+            msg.cinematic == "/Lotus/Levels/1999/PlayerHomeBalconyCinematics.level" ||
+            msg.cinematic == "/Lotus/Levels/EntratiLab/TriadRomanceCinematics.level"
+        ) {
+            if (version_compare(buildLabel, gameToBuildVersion["41.0.0"]) < 0) {
+                msg.customData = JSON.stringify({
+                    Tag: msg.customData + "KissCin",
+                    CinLoadout: {
+                        Skins: inventory.AdultOperatorLoadOuts[0].Skins,
+                        Upgrades: inventory.AdultOperatorLoadOuts[0].Upgrades,
+                        attcol: inventory.AdultOperatorLoadOuts[0].attcol,
+                        cloth: inventory.AdultOperatorLoadOuts[0].cloth,
+                        eyecol: inventory.AdultOperatorLoadOuts[0].eyecol,
+                        pricol: inventory.AdultOperatorLoadOuts[0].pricol,
+                        syancol: inventory.AdultOperatorLoadOuts[0].syancol
+                    }
+                });
+            } else {
+                const postRemasterAdultOperator =
+                    inventory.OperatorSuits.find(
+                        x => x.ItemType == "/Lotus/Powersuits/Operator/AdultOperatorSuitRemaster"
+                        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+                    )?.Configs?.[0] ?? {};
+                msg.customData = JSON.stringify({
+                    Tag: msg.customData + "KissCin",
+                    CinLoadout: {
+                        Skins: postRemasterAdultOperator.Skins,
+                        Upgrades: postRemasterAdultOperator.Upgrades,
+                        attcol: postRemasterAdultOperator.attcol,
+                        cloth: postRemasterAdultOperator.cloth,
+                        eyecol: postRemasterAdultOperator.eyecol,
+                        pricol: postRemasterAdultOperator.pricol,
+                        syancol: postRemasterAdultOperator.syancol
+                    }
+                });
+            }
+        }
+        await createMessage(inventory.accountOwnerId, [msg]);
+
+        if (emailItem) {
+            emailItem.ItemCount += 1;
+        } else {
+            inventory.EmailItems.push({ ItemType: typeName, ItemCount: 1 });
+        }
+
+        inventoryChanges.EmailItems ??= [];
+        inventoryChanges.EmailItems.push({ ItemType: typeName, ItemCount: 1 });
+    }
+    return inventoryChanges;
+};
+
+const xpEarningParts: readonly string[] = [
+    "LWPT_BLADE",
+    "LWPT_GUN_BARREL",
+    "LWPT_AMP_OCULUS",
+    "LWPT_MOA_HEAD",
+    "LWPT_ZANUKA_HEAD",
+    "LWPT_HB_DECK"
+];
+
+export const applyClientEquipmentUpdates = <K extends TEquipmentKey>(
+    inventory: Pick<TInventoryDatabaseDocument, K | "XPInfo" | "infiniteRevives">,
+    gearArray: IEquipmentClient[],
+    categoryName: K,
+    buildLabel: string
+): void => {
+    const category = inventory[categoryName];
+
+    gearArray.forEach(({ ItemId, XP, InfestationDate, ExtraRemaining }) => {
+        const item = category.id(fromOid(ItemId));
+        if (!item) {
+            logger.warn(`Skipping unknown ${categoryName} item: id ${fromOid(ItemId)} not found`);
+            return;
+        }
+
+        if (XP) {
+            item.XP ??= 0;
+            item.XP += XP;
+
+            if (
+                categoryName != "SpecialItems" ||
+                item.ItemType == "/Lotus/Powersuits/Khora/Kavat/KhoraKavatPowerSuit" ||
+                item.ItemType == "/Lotus/Powersuits/Khora/Kavat/KhoraPrimeKavatPowerSuit"
+            ) {
+                let xpItemType = item.ItemType;
+                if (item.ModularParts) {
+                    for (const part of item.ModularParts) {
+                        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+                        const partType = ExportWeapons[part]?.partType;
+                        if (partType !== undefined && xpEarningParts.indexOf(partType) != -1) {
+                            xpItemType = part;
+                            break;
+                        }
+                    }
+                    logger.debug(`adding xp to ${xpItemType} for modular item ${fromOid(ItemId)} (${item.ItemType})`);
+                }
+
+                const xpinfoIndex = inventory.XPInfo.findIndex(x => x.ItemType == xpItemType);
+                if (xpinfoIndex !== -1) {
+                    const xpinfo = inventory.XPInfo[xpinfoIndex];
+                    xpinfo.XP += XP;
+                } else {
+                    inventory.XPInfo.push({
+                        ItemType: xpItemType,
+                        XP: XP
+                    });
+                }
+            }
+        }
+
+        if (InfestationDate) {
+            // 2147483647000 means cured, otherwise became infected
+            item.InfestationDate =
+                InfestationDate.$date.$numberLong == "2147483647000" ? new Date(0) : fromMongoDate(InfestationDate);
+        }
+
+        if (ExtraRemaining !== undefined) {
+            if (inventory.infiniteRevives) {
+                return;
+            }
+            if (version_compare(buildLabel, gameToBuildVersion["10.3.3"]) >= 0) {
+                if (ExtraRemaining > 0) {
+                    throw new Error(
+                        `unexpected value for ExtraRemaining (${ExtraRemaining}); expected a delta from this client`
+                    );
+                }
+                item.ExtraRemaining ??= 4;
+                item.ExtraRemaining += ExtraRemaining;
+            } else {
+                if (ExtraRemaining < 0) {
+                    throw new Error(
+                        `unexpected value for ExtraRemaining (${ExtraRemaining}); expected an absolute value from this client`
+                    );
+                }
+                item.ExtraRemaining = ExtraRemaining;
+            }
+        }
+    });
+};
+
+// May not be used for adding argon or void traces (subtracting these is fine).
+export const addMiscItem = (
+    inventory: Pick<TInventoryDatabaseDocument, "MiscItems">,
+    type: string,
+    count: number,
+    inventoryChanges: IInventoryChanges = {}
+): void => {
+    const miscItemChanges: IMiscItem[] = [
+        {
+            ItemType: type,
+            ItemCount: count
+        }
+    ];
+    addMiscItems(inventory, miscItemChanges);
+    combineInventoryChanges(inventoryChanges, { MiscItems: miscItemChanges });
+};
+
+// May not be used for adding argon or void traces (subtracting these is fine).
+export const addMiscItems = (
+    inventory: Pick<TInventoryDatabaseDocument, "MiscItems">,
+    itemsArray: IMiscItem[]
+): void => {
+    const { MiscItems } = inventory;
+
+    itemsArray.forEach(({ ItemCount, ItemType }) => {
+        if (ItemCount == 0) {
+            return;
+        }
+
+        let itemIndex = MiscItems.findIndex(x => x.ItemType === ItemType);
+        if (itemIndex == -1) {
+            itemIndex = MiscItems.push({ ItemType, ItemCount: 0 }) - 1;
+        }
+
+        MiscItems[itemIndex].ItemCount += ItemCount;
+
+        if (MiscItems[itemIndex].ItemCount == 0) {
+            MiscItems.splice(itemIndex, 1);
+        } else if (MiscItems[itemIndex].ItemCount < 0) {
+            throw new Error(
+                `Cannot remove ${ItemCount * -1}x ${ItemType} from MiscItems, would be left with ${MiscItems[itemIndex].ItemCount}`
+            );
+        }
+    });
+};
+
+// Correctly handles acquisition of argon and void traces.
+export const addMiscItemsComplex = (
+    inventory: Pick<TInventoryDatabaseDocument, "MiscItems" | "FoundToday" | "PlayerLevel" | "spoofMasteryRank">,
+    itemsArray: IMiscItem[]
+): void => {
+    const { MiscItems } = inventory;
+
+    itemsArray.forEach(({ ItemCount, ItemType }) => {
+        if (ItemCount == 0) {
+            return;
+        }
+
+        let itemIndex = MiscItems.findIndex(x => x.ItemType === ItemType);
+        if (itemIndex == -1) {
+            itemIndex = MiscItems.push({ ItemType, ItemCount: 0 }) - 1;
+        }
+
+        MiscItems[itemIndex].ItemCount += ItemCount;
+
+        if (ItemCount > 0) {
+            if (ItemType == "/Lotus/Types/Items/MiscItems/ArgonCrystal") {
+                inventory.FoundToday ??= [];
+                let foundTodayIndex = inventory.FoundToday.findIndex(x => x.ItemType == ItemType);
+                if (foundTodayIndex == -1) {
+                    foundTodayIndex = inventory.FoundToday.push({ ItemType, ItemCount: 0 }) - 1;
+                }
+                inventory.FoundToday[foundTodayIndex].ItemCount += ItemCount;
+                if (inventory.FoundToday[foundTodayIndex].ItemCount <= 0) {
+                    inventory.FoundToday.splice(foundTodayIndex, 1);
+                }
+                if (inventory.FoundToday.length == 0) {
+                    inventory.FoundToday = undefined;
+                }
+            } else if (ItemType == "/Lotus/Types/Items/MiscItems/VoidTearDrop") {
+                const masteryRank =
+                    inventory.spoofMasteryRank && inventory.spoofMasteryRank >= 0
+                        ? inventory.spoofMasteryRank
+                        : inventory.PlayerLevel;
+                const maxVoidTraces = 100 + masteryRank * 50;
+                if (MiscItems[itemIndex].ItemCount > maxVoidTraces) {
+                    MiscItems[itemIndex].ItemCount = maxVoidTraces;
+                    logger.debug(`capped void traces to ${maxVoidTraces} for mastery rank ${masteryRank}`);
+                }
+            }
+        }
+
+        if (MiscItems[itemIndex].ItemCount == 0) {
+            MiscItems.splice(itemIndex, 1);
+        } else if (MiscItems[itemIndex].ItemCount < 0) {
+            throw new Error(
+                `Cannot remove ${ItemCount * -1}x ${ItemType} from MiscItems, would be left with ${MiscItems[itemIndex].ItemCount}`
+            );
+        }
+    });
+};
+
+const applyArrayChanges = <
+    K extends "ShipDecorations" | "Consumables" | "CrewShipRawSalvage" | "CrewShipAmmo" | "Recipes" | "LevelKeys"
+>(
+    inventory: Pick<TInventoryDatabaseDocument, K>,
+    key: K,
+    changes: ITypeCount[]
+): void => {
+    const arr: ITypeCount[] = inventory[key];
+    for (const change of changes) {
+        if (change.ItemCount != 0) {
+            let itemIndex = arr.findIndex(x => x.ItemType === change.ItemType);
+            if (itemIndex == -1) {
+                itemIndex = arr.push({ ItemType: change.ItemType, ItemCount: 0 }) - 1;
+            }
+
+            arr[itemIndex].ItemCount += change.ItemCount;
+            if (arr[itemIndex].ItemCount == 0) {
+                arr.splice(itemIndex, 1);
+            } else if (arr[itemIndex].ItemCount < 0) {
+                throw new Error(
+                    `Cannot remove ${change.ItemCount * -1}x ${change.ItemType} from ${key}, would be left with ${arr[itemIndex].ItemCount}`
+                );
+            }
+        }
+    }
+};
+
+export const addShipDecorations = (
+    inventory: Pick<TInventoryDatabaseDocument, "ShipDecorations">,
+    itemsArray: ITypeCount[]
+): void => {
+    applyArrayChanges(inventory, "ShipDecorations", itemsArray);
+};
+
+export const addConsumables = (
+    inventory: Pick<TInventoryDatabaseDocument, "Consumables">,
+    itemsArray: ITypeCount[]
+): void => {
+    applyArrayChanges(inventory, "Consumables", itemsArray);
+};
+
+export const addCrewShipRawSalvage = (
+    inventory: Pick<TInventoryDatabaseDocument, "CrewShipRawSalvage">,
+    itemsArray: ITypeCount[]
+): void => {
+    applyArrayChanges(inventory, "CrewShipRawSalvage", itemsArray);
+};
+
+export const addCrewShipAmmo = (
+    inventory: Pick<TInventoryDatabaseDocument, "CrewShipAmmo">,
+    itemsArray: ITypeCount[]
+): void => {
+    applyArrayChanges(inventory, "CrewShipAmmo", itemsArray);
+};
+
+export const addRecipes = (inventory: Pick<TInventoryDatabaseDocument, "Recipes">, itemsArray: ITypeCount[]): void => {
+    applyArrayChanges(inventory, "Recipes", itemsArray);
+};
+
+export const addLevelKeys = (
+    inventory: Pick<TInventoryDatabaseDocument, "LevelKeys">,
+    itemsArray: ITypeCount[]
+): void => {
+    applyArrayChanges(inventory, "LevelKeys", itemsArray);
+};
+
+export const addMods = (
+    inventory: Pick<TInventoryDatabaseDocument, "RawUpgrades">,
+    itemsArray: IRawUpgrade[]
+): void => {
+    const { RawUpgrades } = inventory;
+
+    itemsArray.forEach(({ ItemType, ItemCount }) => {
+        if (ItemCount == 0) {
+            return;
+        }
+
+        let itemIndex = RawUpgrades.findIndex(x => x.ItemType === ItemType);
+        if (itemIndex == -1) {
+            itemIndex = RawUpgrades.push({ ItemType, ItemCount: 0 }) - 1;
+        }
+
+        RawUpgrades[itemIndex].ItemCount += ItemCount;
+        if (RawUpgrades[itemIndex].ItemCount == 0) {
+            RawUpgrades.splice(itemIndex, 1);
+        } else if (RawUpgrades[itemIndex].ItemCount < 0) {
+            throw new Error(
+                `Cannot remove ${ItemCount * -1}x ${ItemType} from RawUpgrades, would be left with ${RawUpgrades[itemIndex].ItemCount}`
+            );
+        }
+    });
+};
+
+export const addFusionTreasures = (
+    inventory: Pick<TInventoryDatabaseDocument, "HybridFusionTreasures">,
+    changes: IFusionTreasure[]
+): void => {
+    for (const change of changes) {
+        if (change.ItemCount != 0) {
+            if (change.ItemCount > 0) {
+                if (change.ItemCount > 100) {
+                    throw new Error(
+                        `unexpected acquisition quantity of FusionTreasures: got ${change.ItemCount}, expected 0..100`
+                    );
+                }
+                for (let i = 0; i != change.ItemCount; ++i) {
+                    inventory.HybridFusionTreasures.push({
+                        ItemType: change.ItemType,
+                        Sockets: change.Sockets || 0
+                    });
+                }
+            } else {
+                for (let i = 0; i != change.ItemCount; --i) {
+                    const fusex = inventory.HybridFusionTreasures.find(
+                        x => x.ItemType == change.ItemType && (x.Sockets || 0) == (change.Sockets || 0)
+                    );
+                    if (!fusex) {
+                        throw new Error(`Not enough ${change.ItemType} with Sockets=${change.Sockets || 0} to remove`);
+                    }
+                    inventory.HybridFusionTreasures.pull({ _id: fusex._id });
+                }
+            }
+        }
+    }
+};
+
+export const addFocusXpIncreases = (inventory: TInventoryDatabaseDocument, focusXpPlus: number[]): void => {
+    const FocusType = {
+        AP_UNIVERSAL: 0,
+        AP_ATTACK: 1,
+        AP_DEFENSE: 2,
+        AP_TACTIC: 3,
+        AP_POWER: 4,
+        AP_PRECEPT: 5,
+        AP_FUSION: 6,
+        AP_WARD: 7,
+        AP_UMBRA: 8,
+        AP_ANY: 9
+    };
+
+    inventory.FocusXP ??= {};
+    if (focusXpPlus[FocusType.AP_ATTACK]) {
+        inventory.FocusXP.AP_ATTACK ??= 0;
+        inventory.FocusXP.AP_ATTACK += focusXpPlus[FocusType.AP_ATTACK];
+    }
+    if (focusXpPlus[FocusType.AP_DEFENSE]) {
+        inventory.FocusXP.AP_DEFENSE ??= 0;
+        inventory.FocusXP.AP_DEFENSE += focusXpPlus[FocusType.AP_DEFENSE];
+    }
+    if (focusXpPlus[FocusType.AP_TACTIC]) {
+        inventory.FocusXP.AP_TACTIC ??= 0;
+        inventory.FocusXP.AP_TACTIC += focusXpPlus[FocusType.AP_TACTIC];
+    }
+    if (focusXpPlus[FocusType.AP_POWER]) {
+        inventory.FocusXP.AP_POWER ??= 0;
+        inventory.FocusXP.AP_POWER += focusXpPlus[FocusType.AP_POWER];
+    }
+    if (focusXpPlus[FocusType.AP_WARD]) {
+        inventory.FocusXP.AP_WARD ??= 0;
+        inventory.FocusXP.AP_WARD += focusXpPlus[FocusType.AP_WARD];
+    }
+
+    if (!inventory.noDailyFocusLimit) {
+        inventory.DailyFocus -= focusXpPlus.reduce((a, b) => a + b, 0);
+    }
+};
+
+export const addLoreFragmentScans = (inventory: TInventoryDatabaseDocument, arr: ILoreFragmentScan[]): void => {
+    arr.forEach(clientFragment => {
+        const fragment = inventory.LoreFragmentScans.find(x => x.ItemType == clientFragment.ItemType);
+        if (fragment) {
+            fragment.Progress += clientFragment.Progress;
+        } else {
+            inventory.LoreFragmentScans.push(clientFragment);
+        }
+    });
+};
+
+const publicChallenges = ExportChallenges as Record<string, IChallenge | undefined>;
+const challengeNameToPath: Partial<Record<string, string>> = {};
+for (const path of [...Object.keys(ExportChallenges), ...Object.keys(supplementalChallenges)]) {
+    challengeNameToPath[path.split("/").pop()!] = path;
+}
+
+export const addChallenges = async (
+    buildVersion: number,
+    inventory: TInventoryDatabaseDocument,
+    ChallengeProgress: IChallengeProgress[],
+    SeasonChallengeCompletions?: ISeasonChallenge[],
+    inventoryChanges: IInventoryChanges = {}
+): Promise<IAffiliationMods[]> => {
+    for (const { Name, Progress, Completed } of ChallengeProgress) {
+        let dbChallenge = inventory.ChallengeProgress.find(x => x.Name == Name);
+        if (dbChallenge) {
+            dbChallenge.Progress = Progress;
+        } else {
+            dbChallenge = { Name, Progress };
+            inventory.ChallengeProgress.push(dbChallenge);
+        }
+
+        if (Name.startsWith("Calendar")) {
+            const currentSeason = getCurrentCalendarSeason();
+            addString(getCalendarProgress(inventory, currentSeason).SeasonProgress.ActivatedChallenges, Name);
+        }
+
+        if ((Completed?.length ?? 0) > (dbChallenge.Completed?.length ?? 0)) {
+            dbChallenge.Completed ??= [];
+            for (const completion of Completed!) {
+                if (dbChallenge.Completed.indexOf(completion) == -1) {
+                    dbChallenge.Completed.push(completion);
+                    if (completion == "challengeRewards") {
+                        const path = challengeNameToPath[Name];
+                        const meta = path ? (publicChallenges[path] ?? supplementalChallenges[path]) : undefined;
+                        if (!meta) {
+                            logger.warn(
+                                `recording challenge completion without a reward because metadata is unavailable`,
+                                {
+                                    name: Name,
+                                    path,
+                                    completion
+                                }
+                            );
+                            continue;
+                        }
+                        if (meta.message) {
+                            logger.debug(`${Name} completed, sending inbox message`);
+                            await createMessage(inventory.accountOwnerId, [convertInboxMessage(meta.message)]);
+                            continue;
+                        }
+                        if (meta.countedRewards) {
+                            logger.debug(`${Name} completed, giving rewards:`, meta.countedRewards);
+                            for (const cr of meta.countedRewards) {
+                                combineInventoryChanges(
+                                    inventoryChanges,
+                                    await addItem(inventory, fromStoreItem(cr.StoreItem), cr.ItemCount)
+                                );
+                            }
+                            continue;
+                        }
+                        logger.warn(
+                            `recording challenge completion without a reward because its metadata defines none`,
+                            {
+                                name: Name,
+                                path,
+                                completion,
+                                meta
+                            }
+                        );
+                    }
+                }
+            }
+        } else {
+            dbChallenge.Completed = Completed;
+        }
+    }
+
+    const affiliationMods: IAffiliationMods[] = [];
+    if (SeasonChallengeCompletions) {
+        for (const challenge of SeasonChallengeCompletions) {
+            // Ignore challenges that weren't completed just now
+            if (!ChallengeProgress.find(x => challenge.challenge.indexOf(x.Name) != -1)) {
+                continue;
+            }
+
+            const meta = publicChallenges[challenge.challenge] ?? supplementalChallenges[challenge.challenge];
+            const nightwaveSyndicateTag = getNightwaveSyndicateTag(buildVersion);
+            if (!meta) {
+                logger.warn(`ignoring season challenge completion because metadata is unavailable`, {
+                    uniqueName: challenge.challenge,
+                    syndicateTag: nightwaveSyndicateTag
+                });
+                continue;
+            }
+            logger.debug("Completed season challenge", {
+                uniqueName: challenge.challenge,
+                syndicateTag: nightwaveSyndicateTag,
+                ...meta
+            });
+            if (nightwaveSyndicateTag) {
+                let affiliation = inventory.Affiliations.find(x => x.Tag == nightwaveSyndicateTag);
+                if (!affiliation) {
+                    affiliation =
+                        inventory.Affiliations[
+                            inventory.Affiliations.push({
+                                Tag: nightwaveSyndicateTag,
+                                Standing: 0
+                            }) - 1
+                        ];
+                }
+
+                const standingToAdd =
+                    meta.standing! *
+                    (inventory.nightwaveStandingMultiplier ?? 1) *
+                    (config.worldState?.nightwaveStandingMultiplier ?? 1);
+                affiliation.Standing += standingToAdd;
+                if (affiliationMods.length == 0) {
+                    affiliationMods.push({ Tag: nightwaveSyndicateTag });
+                }
+                affiliationMods[0].Standing ??= 0;
+                affiliationMods[0].Standing += standingToAdd;
+            }
+        }
+    }
+    return affiliationMods;
+};
+
+export const addCalendarProgress = (inventory: TInventoryDatabaseDocument, value: { challenge: string }[]): void => {
+    const currentSeason = getCurrentCalendarSeason();
+    const calendarProgress = getCalendarProgress(inventory, currentSeason);
+    calendarProgress.SeasonProgress.LastCompletedChallengeDayIdx = currentSeason.Days.findIndex(
+        day => day.events.length != 0 && day.events[0].challenge == value[value.length - 1].challenge
+    );
+    checkCalendarAutoAdvance(inventory, currentSeason);
+};
+
+export const resetKahlWeeklyMission = (
+    inventory: Pick<TInventoryDatabaseDocument, "Affiliations">,
+    value: string
+): void => {
+    const currentWeek = Math.trunc((Date.now() - KAHL_EPOCH) / unixTimesInMs.week);
+    const kahl = inventory.Affiliations.find(x => x.Tag == "KahlSyndicate");
+    if (kahl && kahl.WeeklyMissions) {
+        const index = kahl.WeeklyMissions.findIndex(i => i.WeekCount == Number(value.slice("KahlSyndicate_".length)));
+        if (index !== -1) {
+            logger.debug(`kahl weekly mission completed, handling weekly reset`);
+            kahl.WeeklyMissions[index].CompletedMission = true;
+            if (kahl.WeeklyMissions.findIndex(i => i.WeekCount == currentWeek + 1) == -1) {
+                kahl.WeeklyMissions.splice(0, kahl.WeeklyMissions.length, kahl.WeeklyMissions[index]);
+                kahl.WeeklyMissions.push({
+                    MissionIndex: kahl.WeeklyMissions[kahl.WeeklyMissions.length - 1].MissionIndex + 1,
+                    CompletedMission: false,
+                    JobManifest: "/Lotus/Syndicates/Kahl/KahlJobManifestVersionThree",
+                    Challenges: [],
+                    WeekCount: currentWeek + 1
+                });
+            }
+        }
+    }
+};
+
+export const addKahlProgress = (
+    inventory: Pick<TInventoryDatabaseDocument, "Affiliations" | "MiscItems">,
+    value: IWeeklyMissionChallengeInfo[],
+    inventoryChanges: IInventoryChanges
+): void => {
+    for (const info of value) {
+        let stockEarned = 0;
+        const kahl = inventory.Affiliations.find(x => x.Tag == info.Syndicate)!;
+        const mission = kahl.WeeklyMissions!.find(i => i.WeekCount == info.WeekCount)!;
+        if (info.ResetChallenges) {
+            mission.ChallengesReset = true;
+        }
+        for (const challenge of info.CompletedChallenges) {
+            if (mission.Challenges.indexOf(challenge) == -1) {
+                stockEarned += challenge == "/Lotus/Types/Challenges/KahlMissions/NoDeathKahlChallenge" ? 30 : 15;
+                mission.Challenges.push(challenge);
+            }
+        }
+        logger.debug(`adding ${stockEarned} stock for kahl challenges`);
+        addMiscItem(inventory, "/Lotus/Types/Items/MiscItems/KahlCreds", stockEarned, inventoryChanges);
+    }
+};
+
+export const addMissionComplete = (
+    inventory: Pick<TInventoryDatabaseDocument, "Missions">,
+    { Tag, Completes, Tier }: IMission
+): void => {
+    const { Missions } = inventory;
+    const itemIndex = Missions.findIndex(item => item.Tag === Tag);
+
+    if (itemIndex !== -1) {
+        Missions[itemIndex].Completes += Completes;
+        if (Completes && Tier) {
+            Missions[itemIndex].Tier = Tier;
+        }
+    } else if (Tag !== "") {
+        //Prevent "Chains of Harrow" pushing "Tag":"" into inventory.Missions displaying incorrect steel path progress
+        Missions.push({ Tag, Completes });
+    }
+};
+
+export const addBooster = (ItemType: string, timeSecs: number, inventory: TInventoryDatabaseDocument): void => {
+    const currentTime = Math.floor(Date.now() / 1000);
+
+    const { Boosters } = inventory;
+
+    const itemIndex = Boosters.findIndex(booster => booster.ItemType === ItemType);
+
+    if (itemIndex !== -1) {
+        const existingBooster = Boosters[itemIndex];
+        existingBooster.ExpiryDate = Math.max(existingBooster.ExpiryDate, currentTime) + timeSecs;
+    } else {
+        Boosters.push({ ItemType, ExpiryDate: currentTime + timeSecs });
+    }
+};
+
+export const setBooster = (ItemType: string, expiryTimeSecs: number, inventory: TInventoryDatabaseDocument): void => {
+    const { Boosters } = inventory;
+
+    const itemIndex = Boosters.findIndex(booster => booster.ItemType === ItemType);
+
+    if (itemIndex !== -1) {
+        const existingBooster = Boosters[itemIndex];
+        existingBooster.ExpiryDate = Math.max(existingBooster.ExpiryDate, expiryTimeSecs);
+    } else {
+        Boosters.push({ ItemType, ExpiryDate: expiryTimeSecs });
+    }
+};
+
+export const updateSyndicate = (
+    inventory: Pick<TInventoryDatabaseDocument, "Affiliations">,
+    syndicateUpdate: IAffiliationChange[]
+): void => {
+    for (const affiliation of syndicateUpdate) {
+        const syndicate = inventory.Affiliations.find(x => x.Tag == affiliation.Tag);
+        if (syndicate !== undefined) {
+            syndicate.Standing += affiliation.Standing;
+            syndicate.Title = syndicate.Title === undefined ? affiliation.Title : syndicate.Title + affiliation.Title;
+        } else {
+            inventory.Affiliations.push({
+                Standing: affiliation.Standing,
+                Title: affiliation.Title,
+                Tag: affiliation.Tag,
+                FreeFavorsEarned: [],
+                FreeFavorsUsed: []
+            });
+        }
+    }
+};
+
+/**
+ * @returns object with inventory keys of changes or empty object when no items were added
+ */
+export const addKeyChainItems = async (
+    inventory: TInventoryDatabaseDocument,
+    keyChainData: IKeyChainRequest,
+    buildLabel: string
+): Promise<IInventoryChanges> => {
+    const keyChainItems = getKeyChainItems(keyChainData, buildLabel);
+
+    logger.debug(
+        `adding key chain items ${keyChainItems.join()} for ${keyChainData.KeyChain} at stage ${keyChainData.ChainStage}`
+    );
+
+    const nonStoreItems = keyChainItems.map(item => fromStoreItem(item));
+
+    const inventoryChanges: IInventoryChanges = {};
+
+    for (const item of nonStoreItems) {
+        const inventoryChangesDelta = await addItem(inventory, item);
+        combineInventoryChanges(inventoryChanges, inventoryChangesDelta);
+    }
+
+    return inventoryChanges;
+};
+
+export const createLibraryDailyTask = (buildLabel: string): ILibraryDailyTaskInfo => {
+    const enemyTypes = getRandomElement(libraryDailyTasks)!;
+    const enemyAvatar = ExportEnemies.avatars[enemyTypes[0]];
+    const scansRequired = getRandomInt(2, 4);
+    const rewardQuantityMultiplier = shouldDoServerQol(
+        "doubleDailySynthesisEndoReward",
+        buildLabel,
+        gameToBuildVersion["22.13.4"] // change actually made in 22.13.3
+    )
+        ? 2.5
+        : 1.25;
+    return {
+        EnemyTypes: enemyTypes,
+        EnemyLocTag: enemyAvatar.name,
+        EnemyIcon: enemyAvatar.icon!,
+        ScansRequired: scansRequired,
+        RewardStoreItem:
+            Math.random() < 0.25 // Unsure what the actual chance for a "rare reward" is
+                ? "/Lotus/StoreItems/Upgrades/Mods/FusionBundles/RareFusionBundle"
+                : "/Lotus/StoreItems/Upgrades/Mods/FusionBundles/UncommonFusionBundle",
+        RewardQuantity: Math.trunc(scansRequired * rewardQuantityMultiplier),
+        RewardStanding: 2500 * scansRequired
+    };
+};
+
+export const setupKahlSyndicate = (inventory: TInventoryDatabaseDocument): void => {
+    if (inventory.Affiliations.some(x => x.Tag == "KahlSyndicate")) {
+        logger.debug(`refusing to setup KahlSyndicate. it's already set up.`);
+    } else {
+        inventory.Affiliations.push({
+            Title: 1,
+            Standing: 1,
+            WeeklyMissions: [
+                {
+                    MissionIndex: 0,
+                    CompletedMission: false,
+                    JobManifest: "/Lotus/Syndicates/Kahl/KahlJobManifestVersionThree",
+                    WeekCount: Math.trunc((Date.now() - KAHL_EPOCH) / unixTimesInMs.week),
+                    Challenges: []
+                }
+            ],
+            Tag: "KahlSyndicate"
+        });
+    }
+};
+
+// Older mission uploads appended a new ChallengeInstanceStates entry every time instead of updating the existing
+// one. Keep one entry per challenge instance id: the most advanced one (collected wins, then highest Progress,
+// then the earliest). Only touches the array when duplicates exist. Returns the number of removed entries.
+export const collapseDuplicateChallengeInstanceStates = (inventory: TInventoryDatabaseDocument): number => {
+    const states = inventory.ChallengeInstanceStates;
+    if (!states || states.length < 2) {
+        return 0;
+    }
+    const best = new Map<string, number>();
+    for (let i = 0; i != states.length; ++i) {
+        const id = states[i]._id.toString();
+        const j = best.get(id);
+        if (
+            j === undefined ||
+            (states[i].IsRewardCollected && !states[j].IsRewardCollected) ||
+            (states[i].IsRewardCollected == states[j].IsRewardCollected && states[i].Progress > states[j].Progress)
+        ) {
+            best.set(id, i);
+        }
+    }
+    const removed = states.length - best.size;
+    if (removed != 0) {
+        const keep = new Set(best.values());
+        for (let i = states.length - 1; i >= 0; --i) {
+            if (!keep.has(i)) {
+                states.splice(i, 1);
+            }
+        }
+    }
+    return removed;
+};
+
+export const cleanupInventory = (inventory: TInventoryDatabaseDocument): void => {
+    if (ensureOperatorSuitsRemasterData(inventory)) {
+        logger.debug(`added missing Operator suits for Operator remaster`);
+    }
+
+    let index = inventory.MiscItems.findIndex(x => x.ItemType == "");
+    if (index != -1) {
+        inventory.MiscItems.splice(index, 1);
+    }
+
+    index = inventory.Affiliations.findIndex(x => x.Tag == "KahlSyndicate");
+    if (index != -1 && !inventory.Affiliations[index].WeeklyMissions) {
+        logger.debug(`KahlSyndicate seems broken, removing it and setting up again`);
+        inventory.Affiliations.splice(index, 1);
+        setupKahlSyndicate(inventory);
+    }
+
+    index = inventory.Missions.findIndex(x => x.Tag == "");
+    if (index != -1) {
+        inventory.Missions.splice(index, 1);
+        logger.debug(`removed mission completion of ""`);
+    }
+
+    const set = new Set<string>();
+    for (let i = 0; i != inventory.Affiliations.length; ) {
+        if (set.has(inventory.Affiliations[i].Tag)) {
+            logger.debug(`removing duplicate affiliation for ${inventory.Affiliations[i].Tag}`);
+            inventory.Affiliations.splice(i, 1);
+        } else {
+            set.add(inventory.Affiliations[i].Tag);
+            ++i;
+        }
+    }
+
+    const LibrarySyndicate = inventory.Affiliations.find(x => x.Tag == "LibrarySyndicate");
+    if (LibrarySyndicate && LibrarySyndicate.FreeFavorsEarned) {
+        logger.debug(`removing FreeFavorsEarned from LibrarySyndicate`);
+        LibrarySyndicate.FreeFavorsEarned = undefined;
+    }
+
+    if (inventory.LotusCustomization) {
+        if (
+            Array.isArray(inventory.LotusCustomization.attcol) ||
+            Array.isArray(inventory.LotusCustomization.sigcol) ||
+            Array.isArray(inventory.LotusCustomization.eyecol) ||
+            Array.isArray(inventory.LotusCustomization.facial) ||
+            Array.isArray(inventory.LotusCustomization.cloth) ||
+            Array.isArray(inventory.LotusCustomization.syancol)
+        ) {
+            logger.debug(`fixing empty objects represented as empty arrays in LotusCustomization`);
+            inventory.LotusCustomization.attcol = {};
+            inventory.LotusCustomization.sigcol = {};
+            inventory.LotusCustomization.eyecol = {};
+            inventory.LotusCustomization.facial = {};
+            inventory.LotusCustomization.cloth = {};
+            inventory.LotusCustomization.syancol = {};
+        }
+    }
+
+    {
+        let numFixed = 0;
+        for (const equipmentKey of equipmentKeys) {
+            for (const item of inventory[equipmentKey]) {
+                if (item.ModularParts?.length === 0) {
+                    item.ModularParts = undefined;
+                    ++numFixed;
+                }
+            }
+        }
+        if (numFixed != 0) {
+            logger.debug(`removed ModularParts from ${numFixed} non-modular items`);
+        }
+    }
+
+    {
+        let fixed = 0;
+        for (const key of equipmentKeys) {
+            for (const item of inventory[key]) {
+                for (const config of item.Configs) {
+                    if (config.Skins) {
+                        for (let i = 0; i != config.Skins.length; ++i) {
+                            if (config.Skins[i] == "[object Object]") {
+                                config.Skins[i] = "";
+                                ++fixed;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (fixed) {
+            logger.debug(`fixed ${fixed} invalid skin upgrade ids`);
+        }
+    }
+
+    {
+        let fixed = 0;
+        for (const upgrade of inventory.Upgrades) {
+            if (upgrade.UpgradeFingerprint) {
+                const fingerprint = upgrade.UpgradeFingerprint;
+                const json = JSON.parse(fingerprint) as {
+                    lvl?: number | string;
+                    lvlReq?: number | string;
+                    Progress?: number | string;
+                    reqLevel?: number | string;
+                };
+
+                if (
+                    typeof json.lvl == "string" ||
+                    typeof json.lvlReq == "string" ||
+                    typeof json.Progress == "string" ||
+                    typeof json.reqLevel == "string"
+                ) {
+                    upgrade.UpgradeFingerprint = convertFromLegacyFingerprint(convertToLegacyFingerprint(fingerprint));
+                    ++fixed;
+                }
+            }
+        }
+        if (fixed) {
+            logger.debug(`fixed ${fixed} invalid upgrade fingerprints`);
+        }
+    }
+
+    if (inventory.KubrowPetEggs) {
+        addMiscItem(inventory, "/Lotus/Types/Game/KubrowPet/Eggs/KubrowEgg", inventory.KubrowPetEggs.length);
+        logger.debug(`migrated ${inventory.KubrowPetEggs.length} KubrowPetEggs to MiscItems`);
+        inventory.KubrowPetEggs = undefined;
+    }
+
+    // Migrate fusion treasures to hybrid format
+    if (inventory.FusionTreasures) {
+        migrateFusionTreasures(inventory, inventory.FusionTreasures);
+        inventory.FusionTreasures = undefined;
+    }
+
+    // Fix WeeklyGuildVaultBonusInfo
+    if (inventory.WeeklyGuildVaultBonusInfo && !Array.isArray(inventory.WeeklyGuildVaultBonusInfo)) {
+        inventory.WeeklyGuildVaultBonusInfo = [inventory.WeeklyGuildVaultBonusInfo];
+    }
+
+    if (inventory.PeriodicMissionCompletions.some(x => x.tag.startsWith("TreasureHunt"))) {
+        const challenge = inventory.ChallengeProgress.find(x => x.Name == "MCCompleteTreasureHunt");
+        if (challenge) {
+            if (challenge.Progress != 1) {
+                challenge.Progress = 1;
+                logger.debug("fixed broken MCCompleteTreasureHunt challenge");
+            }
+        } else {
+            inventory.ChallengeProgress.push({
+                Name: "MCCompleteTreasureHunt",
+                Progress: 1
+            });
+            logger.debug("pushed MCCompleteTreasureHunt challenge because we alredy completed Treasure Hunt in past");
+        }
+    }
+
+    for (const challenge of inventory.ChallengeProgress) {
+        if (challenge.Completed?.length === 0) {
+            challenge.Completed = undefined;
+        }
+    }
+
+    {
+        let fixedShoulderHelmets = 0;
+        for (const item of inventory.NemesisHistory ?? []) {
+            if (!item.ShoulderHelmet) {
+                item.ShoulderHelmet = getFallbackHelmet(item.KillingSuit);
+                ++fixedShoulderHelmets;
+            }
+        }
+        if (inventory.Nemesis && !inventory.Nemesis.ShoulderHelmet) {
+            inventory.Nemesis.ShoulderHelmet = getFallbackHelmet(inventory.Nemesis.KillingSuit);
+            ++fixedShoulderHelmets;
+        }
+        if (fixedShoulderHelmets) {
+            logger.debug(`fixed ${fixedShoulderHelmets} invalid nemesis shoulder helmets`);
+        }
+    }
+};
+
+export const migrateFusionTreasures = (
+    inventory: TInventoryDatabaseDocument,
+    fusionTreasures: IFusionTreasure[]
+): void => {
+    const arr: IFusionTreasure[] = [];
+    for (const treasure of fusionTreasures) {
+        if (treasure.ItemCount > 100) {
+            logger.debug(
+                `reducing ${treasure.ItemCount} owned ${treasure.ItemType}_${treasure.Sockets} to 100 for migration to hybrid format`
+            );
+            arr.push({ ItemType: treasure.ItemType, ItemCount: 100, Sockets: treasure.Sockets });
+        } else if (treasure.ItemCount > 0) {
+            arr.push(treasure);
+        }
+    }
+    addFusionTreasures(inventory, arr);
+};
+
+export const createDefaultDialogue = (dialogueName: string): IDialogueDatabase => {
+    return {
+        Rank: 1,
+        Chemistry: 0,
+        AvailableDate: new Date(0),
+        AvailableGiftDate: new Date(0),
+        RankUpExpiry: new Date(0),
+        BountyChemExpiry: new Date(0),
+        QueuedDialogues: [],
+        Gifts: [],
+        Booleans: [],
+        Completed: [],
+        Counters: [],
+        DialogueName: dialogueName
+    };
+};
+
+export const getDialogue = (
+    inventory: Pick<TInventoryDatabaseDocument, "DialogueHistory">,
+    dialogueName: string
+): IDialogueDatabase => {
+    inventory.DialogueHistory ??= {};
+    inventory.DialogueHistory.Dialogues ??= [];
+    let dialogue = inventory.DialogueHistory.Dialogues.find(x => x.DialogueName == dialogueName);
+    if (!dialogue) {
+        dialogue =
+            inventory.DialogueHistory.Dialogues[
+                inventory.DialogueHistory.Dialogues.push(createDefaultDialogue(dialogueName)) - 1
+            ];
+    }
+    return dialogue;
+};
+
+export const getCalendarProgress = (
+    inventory: Pick<TInventoryDatabaseDocument, "CalendarProgress">,
+    currentSeason: ICalendarSeason
+): ICalendarProgress => {
+    if (!inventory.CalendarProgress) {
+        inventory.CalendarProgress = {
+            Version: 19,
+            Iteration: currentSeason.YearIteration,
+            YearProgress: {
+                Upgrades: []
+            },
+            SeasonProgress: {
+                SeasonType: currentSeason.Season,
+                LastCompletedDayIdx: -1,
+                LastCompletedChallengeDayIdx: -1,
+                ActivatedChallenges: []
+            }
+        };
+    }
+
+    const yearRolledOver = inventory.CalendarProgress.Iteration != currentSeason.YearIteration;
+    if (yearRolledOver) {
+        inventory.CalendarProgress.Iteration = currentSeason.YearIteration;
+        inventory.CalendarProgress.YearProgress.Upgrades = [];
+    }
+    if (yearRolledOver || inventory.CalendarProgress.SeasonProgress.SeasonType != currentSeason.Season) {
+        inventory.CalendarProgress.SeasonProgress.SeasonType = currentSeason.Season;
+        inventory.CalendarProgress.SeasonProgress.LastCompletedDayIdx = -1;
+        inventory.CalendarProgress.SeasonProgress.LastCompletedChallengeDayIdx = -1;
+        inventory.CalendarProgress.SeasonProgress.ActivatedChallenges = [];
+    }
+
+    return inventory.CalendarProgress;
+};
+
+export const checkCalendarAutoAdvance = (
+    inventory: TInventoryDatabaseDocument,
+    currentSeason: ICalendarSeason
+): void => {
+    const calendarProgress = inventory.CalendarProgress!;
+    for (
+        let dayIndex = calendarProgress.SeasonProgress.LastCompletedDayIdx + 1;
+        dayIndex != currentSeason.Days.length;
+        ++dayIndex
+    ) {
+        const day = currentSeason.Days[dayIndex];
+        if (day.events.length == 0) {
+            // birthday
+            if (day.day == 1) {
+                // kaya
+                if ((inventory.Affiliations.find(x => x.Tag == "HexSyndicate")?.Title || 0) >= 4) {
+                    break;
+                }
+                logger.debug(`cannot talk to kaya, skipping birthday`);
+                calendarProgress.SeasonProgress.LastCompletedDayIdx++;
+            } else if (day.day == 74 || day.day == 355) {
+                // minerva, velimir
+                if ((inventory.Affiliations.find(x => x.Tag == "HexSyndicate")?.Title || 0) >= 5) {
+                    break;
+                }
+                logger.debug(`cannot talk to minerva/velimir, skipping birthday`);
+                calendarProgress.SeasonProgress.LastCompletedDayIdx++;
+            } else {
+                break;
+            }
+        } else if (day.events[0].type == "CET_CHALLENGE") {
+            if (calendarProgress.SeasonProgress.LastCompletedChallengeDayIdx < dayIndex) {
+                break;
+            }
+            logger.trace(`already completed the challenge, skipping ahead`);
+            calendarProgress.SeasonProgress.LastCompletedDayIdx++;
+        } else {
+            break;
+        }
+    }
+};
+
+export const giveNemesisWeaponRecipe = (
+    inventory: TInventoryDatabaseDocument,
+    weaponType: string,
+    nemesisName: string = "AGOR ROK",
+    weaponLoc?: string,
+    profile: INemesisProfile = generateNemesisProfile()
+): void => {
+    if (!weaponLoc) {
+        weaponLoc = ExportWeapons[weaponType].name;
+    }
+    const recipeType = Object.entries(ExportRecipes).find(arr => arr[1].resultType == weaponType)![0];
+    addRecipes(inventory, [
+        {
+            ItemType: recipeType,
+            ItemCount: 1
+        }
+    ]);
+    inventory.PendingRecipes.push({
+        CompletionDate: new Date(),
+        ItemType: recipeType,
+        TargetFingerprint: JSON.stringify({
+            ItemType: "/Lotus/Weapons/Grineer/KuvaLich/Upgrades/InnateDamageRandomMod",
+            UpgradeFingerprint: {
+                compat: weaponType,
+                buffs: [
+                    {
+                        Tag: profile.innateDamageTag,
+                        Value: profile.innateDamageValue
+                    }
+                ]
+            },
+            Name: weaponLoc + "|" + nemesisName
+        } satisfies INemesisWeaponTargetFingerprint)
+    });
+};
+
+export const giveNemesisPetRecipe = (
+    inventory: TInventoryDatabaseDocument,
+    nemesisName: string = "AGOR ROK",
+    profile: INemesisProfile = generateNemesisProfile()
+): void => {
+    const head = profile.petHead!;
+    const body = profile.petBody!;
+    const legs = profile.petLegs!;
+    const tail = profile.petTail!;
+    const recipeType = Object.entries(ExportRecipes).find(arr => arr[1].resultType == head)![0];
+    addRecipes(inventory, [
+        {
+            ItemType: recipeType,
+            ItemCount: 1
+        }
+    ]);
+    inventory.PendingRecipes.push({
+        CompletionDate: new Date(),
+        ItemType: recipeType,
+        TargetFingerprint: JSON.stringify({
+            Parts: [head, body, legs, tail],
+            Name: "/Lotus/Language/Pets/ZanukaPetName|" + nemesisName
+        } satisfies INemesisPetTargetFingerprint)
+    });
+};
+
+export const getEffectiveAvatarImageType = (inventory: TInventoryDatabaseDocument): string => {
+    return inventory.ActiveAvatarImageType ?? "/Lotus/Types/StoreItems/AvatarImages/AvatarImageDefault";
+};
+
+export const updateEntratiVault = (inventory: TInventoryDatabaseDocument): void => {
+    if (!inventory.EntratiVaultCountResetDate || Date.now() >= inventory.EntratiVaultCountResetDate.getTime()) {
+        const EPOCH = 1734307200 * 1000; // Mondays, amirite?
+        const day = Math.trunc((Date.now() - EPOCH) / 86400000);
+        const week = Math.trunc(day / 7);
+        const weekStart = EPOCH + week * 604800000;
+        const weekEnd = weekStart + 604800000;
+        inventory.EntratiVaultCountLastPeriod = 0;
+        inventory.EntratiVaultCountResetDate = new Date(weekEnd);
+        if (inventory.EntratiLabConquestUnlocked) {
+            inventory.EntratiLabConquestUnlocked = 0;
+            inventory.EntratiLabConquestCacheScoreMission = 0;
+            inventory.EntratiLabConquestActiveFrameVariants = [];
+        }
+        if (inventory.EchoesHexConquestUnlocked) {
+            inventory.EchoesHexConquestUnlocked = 0;
+            inventory.EchoesHexConquestCacheScoreMission = 0;
+            inventory.EchoesHexConquestActiveFrameVariants = [];
+            inventory.EchoesHexConquestActiveStickers = [];
+        }
+    }
+};
+
+export const isEligibleForThousandYearFishDeco = (inventory: TInventoryDatabaseDocument): boolean => {
+    const lfsTypes = new Set<string>(inventory.LoreFragmentScans.map(x => x.ItemType));
+    return (
+        lfsTypes.has("/Lotus/Types/Lore/Fragments/EidolonFragments/EidolonFragmentA") &&
+        lfsTypes.has("/Lotus/Types/Lore/Fragments/EidolonFragments/EidolonFragmentB") &&
+        lfsTypes.has("/Lotus/Types/Lore/Fragments/EidolonFragments/EidolonFragmentC") &&
+        lfsTypes.has("/Lotus/Types/Lore/Fragments/EidolonFragments/EidolonFragmentD") &&
+        lfsTypes.has("/Lotus/Types/Lore/Fragments/EidolonFragments/EidolonFragmentE") &&
+        lfsTypes.has("/Lotus/Types/Lore/Fragments/EidolonFragments/EidolonFragmentF") &&
+        lfsTypes.has("/Lotus/Types/Lore/Fragments/EidolonFragments/EidolonFragmentG") &&
+        lfsTypes.has("/Lotus/Types/Lore/Fragments/EidolonFragments/EidolonFragmentH") &&
+        lfsTypes.has("/Lotus/Types/Lore/Fragments/EidolonFragments/EidolonFragmentI") &&
+        lfsTypes.has("/Lotus/Types/Lore/Fragments/EidolonFragments/EidolonFragmentJ") &&
+        lfsTypes.has("/Lotus/Types/Lore/Fragments/EidolonFragments/EidolonFragmentK") &&
+        lfsTypes.has("/Lotus/Types/Lore/Fragments/EidolonFragments/EidolonFragmentL") &&
+        lfsTypes.has("/Lotus/Types/Lore/Fragments/EidolonFragments/EidolonFragmentM") &&
+        lfsTypes.has("/Lotus/Types/Lore/Fragments/EidolonFragments/EidolonFragmentN") &&
+        lfsTypes.has("/Lotus/Types/Lore/Fragments/EidolonFragments/EidolonFragmentO") &&
+        lfsTypes.has("/Lotus/Types/Lore/Fragments/EidolonFragments/EidolonFragmentP") &&
+        lfsTypes.has("/Lotus/Types/Lore/Fragments/EidolonFragments/EidolonFragmentQ") &&
+        lfsTypes.has("/Lotus/Types/Lore/Fragments/EidolonFragments/EidolonFragmentR") &&
+        lfsTypes.has("/Lotus/Types/Lore/Fragments/EidolonFragments/EidolonFragmentS") &&
+        lfsTypes.has("/Lotus/Types/Lore/Fragments/EidolonFragments/EidolonFragmentT")
+    );
+};
+
+export const giveThousandYearFishDeco = async (inventory: TInventoryDatabaseDocument): Promise<void> => {
+    inventory.receivedThousandYearFishDeco = true;
+    await createMessage(inventory.accountOwnerId, [
+        {
+            sndr: "/Lotus/Language/Npcs/Onkko",
+            icon: "/Lotus/Interface/Icons/Npcs/Ostron/Onkko.png",
+            sub: "/Lotus/Language/Messages/EidolonCollectibleRewardTitle",
+            msg: "/Lotus/Language/Messages/EidolonCollectibleRewardBody",
+            att: ["/Lotus/Types/Items/ShipDecos/LisetPropOstStoneFish"],
+            highPriority: true
+        }
+    ]);
+};
+
+export const ensureUserHasFounderHonoria = async (inventory: TInventoryDatabaseDocument): Promise<void> => {
+    if (!inventory.FlavourItems.some(x => x.ItemType == "/Lotus/Types/Items/Titles/FounderLvl1Title")) {
+        const eligibleItems = [
+            "/Lotus/Types/Items/Titles/FounderLvl1Title",
+            "/Lotus/Types/Items/Titles/FounderLvl2Title",
+            "/Lotus/Types/Items/Titles/FounderLvl3Title",
+            "/Lotus/Types/Items/Titles/FounderLvl4Title"
+        ].splice(0, inventory.Founder);
+        for (const item of eligibleItems) {
+            addCustomization(inventory, item);
+        }
+        await createMessage(inventory.accountOwnerId, [
+            {
+                sndr: "/Lotus/Language/CircleOfHell/RoatheName",
+                icon: "/Lotus/Interface/Icons/Npcs/Roathe.png",
+                sub: "/Lotus/Language/Inbox/FounderTitleReceivedTitle",
+                msg: "/Lotus/Language/Inbox/FounderTitleReceivedBody",
+                att: eligibleItems,
+                highPriority: true, // TOVERIFY
+                attVisualOnly: true
+            }
+        ]);
+    }
+};
+
+export const handleTauMemories = async (inventory: TInventoryDatabaseDocument): Promise<void> => {
+    const oldPeace = inventory.QuestKeys.find(
+        x => x.ItemType == "/Lotus/Types/Keys/TauPrequel/TauPrequelQuestKeyChain"
+    );
+    if (oldPeace?.Completed) {
+        oldPeace.CustomData ||= `{}`;
+        const customData = JSON.parse(oldPeace.CustomData) as ITauPrequelQuestCustomData;
+        // If the user didn't pick any memories during the quest, ChosenMemories would not exist. TOVERIFY: What is the expected behaviour in that case?
+        customData.ChosenMemories ??= {
+            TauPrequelStage11_PoolA: { Name: "cat0", Choice: 1 },
+            TauPrequelStage13_PoolA: { Name: "cat1", Choice: 1 },
+            TauPrequelStage14_PoolA: { Name: "cat2", Choice: 1 }
+        };
+        if (!customData.ChosenMemories.InboxMessageSent) {
+            customData.ChosenMemories.InboxMessageSent = true;
+            oldPeace.CustomData = JSON.stringify(customData);
+            const playerNames = [];
+            for (const memory of Object.values(customData.ChosenMemories)) {
+                if (typeof memory == "object") {
+                    playerNames.push(memory.Name);
+                }
+            }
+            await createMessage(inventory.accountOwnerId, [
+                {
+                    sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender_PostWar",
+                    msg: "/Lotus/Language/TauPrequel/TauPrequelFinal/PostQuestSomaticBearersInboxBody",
+                    arg: [
+                        {
+                            Key: "PLAYER_NAMES",
+                            Tag: playerNames.join(",")
+                        }
+                    ],
+                    att: ["/Lotus/Types/Items/ShipDecos/Tau/LisetPropSomaticBearerFlowerPostQuestItem"],
+                    sub: "/Lotus/Language/TauPrequel/TauPrequelFinal/PostQuestSomaticBearersInboxTitle",
+                    icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+                    highPriority: true
+                }
+            ]);
+        }
+    }
+};
+
+export const updateIncentiveStates = async (
+    accountId: string | Types.ObjectId,
+    entry: ICollectibleEntry
+): Promise<void> => {
+    if (entry.CollectibleType == "/Lotus/Objects/Orokin/Props/CollectibleSeriesOne") {
+        const progress = entry.Count / entry.ReqScans;
+        for (const gate of entry.IncentiveStates) {
+            gate.complete = progress >= gate.threshold;
+            if (gate.complete && !gate.sent) {
+                gate.sent = true;
+                if (gate.threshold == 0.5) {
+                    await createMessage(accountId, [kuriaMessage50]);
+                } else {
+                    await createMessage(accountId, [kuriaMessage75]);
+                }
+            }
+        }
+        if (progress >= 1.0) {
+            await createMessage(accountId, [kuriaMessage100]);
+        }
+    } else if (entry.CollectibleType == "/Lotus/Types/Lore/Fragments/DuviriMITWFragments/DuviriMITWCollectibleDeco") {
+        if (entry.Count == entry.ReqScans) {
+            await createMessage(accountId, [
+                {
+                    sub: "/Lotus/Language/Isleweaver/IsleweaverFragmentInboxMessageSender",
+                    sndr: "/Lotus/Language/Isleweaver/IsleweaverFragmentInboxMessageSubject",
+                    msg: "/Lotus/Language/Isleweaver/IsleweaverFragmentInboxMessageBody",
+                    icon: "/Lotus/Interface/Icons/Npcs/UnknownSource.png",
+                    att: [
+                        "/Lotus/Types/Items/ShipDecos/Duviri/Mitw/RusalkaHat",
+                        "/Lotus/Types/Items/ShipDecos/Duviri/Mitw/RusalkaMedals"
+                    ],
+                    highPriority: true
+                }
+            ]);
+        }
+    }
+};
+
+const steelPathSystems: [number, string][] = [
+    [0, "Mercury"],
+    [1, "Venus"],
+    [2, "Earth"],
+    [3, "Mars"],
+    [4, "Jupiter"],
+    [5, "Saturn"],
+    [6, "Uranus"],
+    [7, "Neptune"],
+    [8, "Pluto"],
+    [9, "Ceres"],
+    [10, "Eris"],
+    [11, "Sedna"],
+    [12, "Europa"],
+    [14, "Void"],
+    [15, "Phobos"],
+    [16, "Deimos"],
+    [17, "Lua"],
+    [18, "KuvaFortress"],
+    [20, "DeepSpace"],
+    [21, "Zariman"],
+    [22, "Duviri"],
+    [23, "1999"],
+    [24, "Perita"]
+];
+
+const isRequiredForSteelPathTrophy = (region: IRegion): boolean => {
+    return region.missionType != "MT_PVP";
+};
+
+const isRequiredForRailjackSteelPathTrophy = (region: IRegion): boolean => {
+    return (
+        region.systemIndex != 6 && // ash & garuda nodes
+        !region.hidden && // nemesis nodes
+        region.maxEnemyLevel != 1 // freeroam node
+    );
+};
+
+export const ensureUserHasSteelPathRewards = async (
+    inventory: TInventoryDatabaseDocument,
+    silent?: true
+): Promise<void> => {
+    const completedNodes = new Set<string>();
+    for (const mission of inventory.Missions) {
+        if (mission.Tier) {
+            completedNodes.add(mission.Tag);
+        }
+    }
+
+    const eligibleSystems = new Set<number>(steelPathSystems.map(x => x[0]));
+    for (const [tag, region] of Object.entries(ExportRegions)) {
+        if (!completedNodes.has(tag)) {
+            const isRailjack = region.missionType == "MT_RAILJACK";
+            if (isRailjack ? isRequiredForRailjackSteelPathTrophy(region) : isRequiredForSteelPathTrophy(region)) {
+                eligibleSystems.delete(isRailjack ? 20 : region.systemIndex);
+            }
+        }
+    }
+
+    for (const systemIndex of eligibleSystems) {
+        const systemShortName = steelPathSystems.find(x => x[0] == systemIndex)![1];
+        const emoteItem = `/Lotus/Types/Items/Emotes/Hardmode${systemShortName}Emote`;
+        if (!inventory.FlavourItems.some(x => x.ItemType == emoteItem)) {
+            const countedAtt: ITypeCount[] = [];
+
+            const trophyItem: ITypeCount = {
+                ItemType: `/Lotus/Types/Items/ShipDecos/PlanetTrophies/PlanetTrophy${systemShortName}Bronze`,
+                ItemCount: 1
+            };
+            addShipDecorations(inventory, [trophyItem]);
+            countedAtt.push(trophyItem);
+
+            if (systemIndex == 16) {
+                const otherTropyItem: ITypeCount = {
+                    ItemType: `/Lotus/Types/Items/ShipDecos/PlanetTrophies/PlanetTrophyDerelictBronze`,
+                    ItemCount: 1
+                };
+                addShipDecorations(inventory, [otherTropyItem]);
+                countedAtt.push(otherTropyItem);
+            }
+
+            inventory.FlavourItems.push({ ItemType: emoteItem });
+            countedAtt.push({
+                ItemType: emoteItem,
+                ItemCount: 1
+            });
+
+            if (systemIndex == 16) {
+                addCustomization(inventory, "/Lotus/Types/Items/Emotes/HardmodeDerelictEmote");
+                countedAtt.push({
+                    ItemType: "/Lotus/Types/Items/Emotes/HardmodeDerelictEmote",
+                    ItemCount: 1
+                });
+            }
+
+            addMiscItem(inventory, "/Lotus/Types/Items/MiscItems/SteelEssence", 25);
+            countedAtt.push({
+                ItemType: "/Lotus/Types/Items/MiscItems/SteelEssence",
+                ItemCount: 25
+            });
+
+            if (!silent) {
+                await createMessage(inventory.accountOwnerId, [
+                    {
+                        sndr: "/Lotus/Language/Bosses/Teshin",
+                        msg: "/Lotus/Language/Inbox/HardModeRewardMsgBody",
+                        arg: [
+                            {
+                                Key: "PLANET_NAME",
+                                Tag: ExportSystems[systemIndex].name
+                            }
+                        ],
+                        countedAtt,
+                        attVisualOnly: true,
+                        sub: "/Lotus/Language/Inbox/HardModeRewardMsgTitle",
+                        icon: "/Lotus/Interface/Icons/Npcs/Teshin.png",
+                        highPriority: true,
+                        minBuildVersion: buildVersionToInt("2020.07.08.00.00") // U28.1 introduced Steel Path
+                    }
+                ]);
+            }
+        }
+    }
+};
+
+export const dispatchPendingPremiumCredits = async (inventory: TInventoryDatabaseDocument): Promise<void> => {
+    await createMessage(inventory.accountOwnerId, [
+        {
+            sndr: "/Lotus/Language/Bosses/Ordis",
+            msg: "/Lotus/Language/Inbox/FoundItemsBody",
+            sub: "/Lotus/Language/Inbox/FoundItemsTitle",
+            icon: "/Lotus/Interface/Icons/Npcs/Ordis.png",
+            PremiumCredits: inventory.pendingPremiumCredits,
+            highPriority: true // FoundItems messages on live have this flag, tho as we are reusing it here for platinum rewards, it's maybe questionable if it's needed, but whatever.
+        }
+    ]);
+    inventory.pendingPremiumCredits = undefined;
+};
+
+export const processGoalProgressUpdates = async (
+    inventory: Pick<TInventoryDatabaseDocument, "PersonalGoalProgress" | "GuildId">,
+    account: TAccountDocument,
+    buildLabel: string,
+    goalProgressUpdates: IGoalsProgress[],
+    currentNode?: string,
+    isStealPath: boolean = false
+): Promise<void> => {
+    const tuning = getPrivateServerTuning(account);
+    for (const uploadProgress of goalProgressUpdates) {
+        const goal = getWorldState(buildLabel, false, false).Goals.find(
+            x => fromOid(x._id) == fromOid(uploadProgress._id)
+        );
+        if (goal) {
+            const goalId = fromOid(goal._id);
+            const completedGoalNode =
+                currentNode !== undefined &&
+                (currentNode == goal.Node || Boolean(goal.ConcurrentNodes?.includes(currentNode)));
+            if (tuning?.oneMissionEventCompletion && goal.Personal && completedGoalNode) {
+                const target = getPrivateServerOneMissionGoalTarget(goal);
+                uploadProgress.Count = Math.max(uploadProgress.Count, target);
+                uploadProgress.Best = Math.max(uploadProgress.Best, target);
+            }
+
+            if (goal.Tag == "ShadowgrapherEvent") {
+                if (currentNode == goal.Node) {
+                    const extraCount = isStealPath ? 4 : 3;
+                    uploadProgress.Best += extraCount;
+                    uploadProgress.Count += extraCount;
+                }
+            }
+            if (goal.Personal) {
+                inventory.PersonalGoalProgress ??= [];
+                const goalProgress = inventory.PersonalGoalProgress.find(x => x.goalId.equals(goalId));
+                if (!goalProgress) {
+                    inventory.PersonalGoalProgress.push({
+                        Best: uploadProgress.Best,
+                        Count: uploadProgress.Count,
+                        Tag: goal.Tag,
+                        goalId: new Types.ObjectId(goalId)
+                    });
+                }
+
+                let currentMissionKey: string | undefined;
+                if (currentNode == goal.Node) {
+                    currentMissionKey = goal.MissionKeyName;
+                } else if (goal.ConcurrentNodes && goal.ConcurrentMissionKeyNames) {
+                    for (let i = 0; i < goal.ConcurrentNodes.length; i++) {
+                        if (currentNode == goal.ConcurrentNodes[i]) {
+                            currentMissionKey = goal.ConcurrentMissionKeyNames[i];
+                            break;
+                        }
+                    }
+                }
+                const rewards = [];
+                let countBeforeUpload = goalProgress?.Count ?? 0;
+                let totalCount = countBeforeUpload + uploadProgress.Count;
+                if (goal.Best) {
+                    countBeforeUpload = goalProgress?.Best ?? 0;
+                    totalCount = uploadProgress.Best;
+                }
+
+                {
+                    if (
+                        "InterimGoals" in goal &&
+                        goal.InterimGoals &&
+                        "InterimRewards" in goal &&
+                        goal.InterimRewards
+                    ) {
+                        for (let i = 0; i < goal.InterimGoals.length; i++) {
+                            if (
+                                goal.InterimGoals[i] &&
+                                goal.InterimGoals[i] <= totalCount &&
+                                (!goalProgress || countBeforeUpload < goal.InterimGoals[i]) &&
+                                goal.InterimRewards[i]
+                            ) {
+                                rewards.push(goal.InterimRewards[i]);
+                            }
+                        }
+                    }
+                    if (
+                        goal.Goal &&
+                        goal.Goal <= totalCount &&
+                        (!goalProgress || countBeforeUpload < goal.Goal) &&
+                        goal.Reward
+                    ) {
+                        rewards.push(goal.Reward);
+                    }
+                    if (
+                        goal.BonusGoal &&
+                        goal.BonusGoal <= totalCount &&
+                        (!goalProgress || countBeforeUpload < goal.BonusGoal) &&
+                        goal.BonusReward
+                    ) {
+                        rewards.push(goal.BonusReward);
+                    }
+                }
+
+                const messages: IMessageCreationTemplate[] = [];
+                const infos: {
+                    sndr: string;
+                    msg: string;
+                    sub: string;
+                    icon: string;
+                    arg?: string[];
+                    minBuildLabel?: string;
+                }[] = [];
+
+                {
+                    if (currentMissionKey && currentMissionKey in goalMessagesByKey) {
+                        infos.push(goalMessagesByKey[currentMissionKey]);
+                    } else if (goal.Tag in goalMessagesByTag) {
+                        const combinedGoals = [
+                            ...("InterimGoals" in goal && goal.InterimGoals ? goal.InterimGoals : []),
+                            goal.Goal,
+                            goal.BonusGoal
+                        ];
+                        combinedGoals.forEach((n, i) => {
+                            if (n !== undefined && n > countBeforeUpload && n <= totalCount) {
+                                infos.push(goalMessagesByTag[goal.Tag][i]);
+                            }
+                        });
+                    }
+                }
+
+                // ══════ SOLO EVENT MILESTONE REWARDS (custom add-on; see soloEventMilestoneRewardsByTag above) ══════
+                // First time you finish one of the stub community events, append its milestone rewards +
+                // an inbox message so the loop below delivers them exactly like a normal milestone reward.
+                if (
+                    tuning?.soloEventMilestoneRewards &&
+                    countBeforeUpload == 0 &&
+                    totalCount > 0 &&
+                    goal.Tag &&
+                    goal.Tag in soloEventMilestoneRewardsByTag
+                ) {
+                    const soloEvent = soloEventMilestoneRewardsByTag[goal.Tag];
+                    rewards.push({ items: soloEvent.items });
+                    infos.push({ sndr: soloEvent.sndr, msg: soloEvent.msg, sub: soloEvent.sub, icon: soloEvent.icon });
+                }
+                // ══════ END SOLO EVENT MILESTONE REWARDS block ══════
+
+                for (let i = 0; i < rewards.length; i++) {
+                    if (infos[i]) {
+                        const info = infos[i];
+                        const reward = rewards[i];
+                        const countedItems = reward.countedItems ? [...reward.countedItems] : undefined;
+                        const credits = reward.credits;
+                        const message: IMessageCreationTemplate = {
+                            sndr: info.sndr,
+                            msg: info.msg,
+                            sub: info.sub,
+                            icon: info.icon,
+                            minBuildVersion: info.minBuildLabel ? buildVersionToInt(info.minBuildLabel) : undefined,
+                            highPriority: true
+                        };
+                        if (reward.items) {
+                            message.att = reward.items.map(x => (isStoreItem(x) ? fromStoreItem(x) : x));
+                        }
+                        if (countedItems) {
+                            message.countedAtt = countedItems;
+                        }
+                        if (credits) {
+                            message.RegularCredits = credits;
+                        }
+                        if (info.arg) {
+                            const args: Record<string, string | number> = {
+                                PLAYER_NAME: account.DisplayName,
+                                CREDIT_REWARD: credits ?? 0
+                            };
+
+                            for (let j = 0; j < info.arg.length; j++) {
+                                const key = info.arg[j];
+                                const value = args[key];
+                                if (value) {
+                                    message.arg ??= [];
+                                    message.arg.push({
+                                        Key: key,
+                                        Tag: value
+                                    });
+                                }
+                            }
+                        }
+                        messages.push(message);
+                    }
+                }
+
+                if (messages.length > 0) await createMessage(account._id, messages);
+
+                if (goalProgress) {
+                    goalProgress.Best = Math.max(goalProgress.Best!, uploadProgress.Best);
+                    goalProgress.Count += uploadProgress.Count;
+                }
+            }
+            if ("ClanGoal" in goal && goal.ClanGoal && inventory.GuildId) {
+                const guild = await Guild.findById(inventory.GuildId, "GoalProgress Tier VaultDecoRecipes");
+                if (guild) {
+                    await handleGuildGoalProgress(guild, {
+                        Count: uploadProgress.Count,
+                        Tag: goal.Tag,
+                        goalId: new Types.ObjectId(goalId)
+                    });
+                }
+            }
+        }
+    }
+};
+
+export const handleOneTimePurchasable = (
+    inventory: Pick<TInventoryDatabaseDocument, "OneTimePurchases">,
+    typeName: string,
+    inventoryChanges: IInventoryChanges = {}
+): IInventoryChanges => {
+    inventory.OneTimePurchases ??= [];
+    if (!inventory.OneTimePurchases.includes(typeName)) {
+        inventory.OneTimePurchases.push(typeName);
+        inventoryChanges.OneTimePurchases ??= [];
+        inventoryChanges.OneTimePurchases.push(typeName);
+    } else {
+        logger.warn(`${typeName} is already in OneTimePurchases`);
+    }
+    return inventoryChanges;
+};
+
+const goalMessagesByKey: Record<
+    string,
+    { sndr: string; msg: string; sub: string; icon: string; arg?: string[]; minBuildLabel?: string }
+> = {
+    "/Lotus/Types/Keys/GalleonRobberyAlert": {
+        sndr: "/Lotus/Language/Bosses/BossCouncilorVayHek",
+        msg: "/Lotus/Language/Messages/GalleonRobbery2025RewardMsgA",
+        sub: "/Lotus/Language/Messages/GalleonRobbery2025MissionTitleA",
+        icon: "/Lotus/Interface/Icons/Npcs/VayHekPortrait.png"
+    },
+    "/Lotus/Types/Keys/GalleonRobberyAlertB": {
+        sndr: "/Lotus/Language/Bosses/BossCouncilorVayHek",
+        msg: "/Lotus/Language/Messages/GalleonRobbery2025RewardMsgB",
+        sub: "/Lotus/Language/Messages/GalleonRobbery2025MissionTitleB",
+        icon: "/Lotus/Interface/Icons/Npcs/VayHekPortrait.png"
+    },
+    "/Lotus/Types/Keys/GalleonRobberyAlertC": {
+        sndr: "/Lotus/Language/Bosses/BossCouncilorVayHek",
+        msg: "/Lotus/Language/Messages/GalleonRobbery2025RewardMsgC",
+        sub: "/Lotus/Language/Messages/GalleonRobbery2025MissionTitleC",
+        icon: "/Lotus/Interface/Icons/Npcs/VayHekPortrait.png"
+    },
+    "/Lotus/Types/Keys/TacAlertKeyWaterFightA": {
+        sndr: "/Lotus/Language/Bosses/BossKelaDeThaym",
+        msg: "/Lotus/Language/Inbox/WaterFightRewardMsgA",
+        sub: "/Lotus/Language/Inbox/WaterFightRewardSubjectA",
+        icon: "/Lotus/Interface/Icons/Npcs/Grineer/KelaDeThaym.png"
+    },
+    "/Lotus/Types/Keys/TacAlertKeyWaterFightB": {
+        sndr: "/Lotus/Language/Bosses/BossKelaDeThaym",
+        msg: "/Lotus/Language/Inbox/WaterFightRewardMsgB",
+        sub: "/Lotus/Language/Inbox/WaterFightRewardSubjectB",
+        icon: "/Lotus/Interface/Icons/Npcs/Grineer/KelaDeThaym.png"
+    },
+    "/Lotus/Types/Keys/TacAlertKeyWaterFightC": {
+        sndr: "/Lotus/Language/Bosses/BossKelaDeThaym",
+        msg: "/Lotus/Language/Inbox/WaterFightRewardMsgC",
+        sub: "/Lotus/Language/Inbox/WaterFightRewardSubjectC",
+        icon: "/Lotus/Interface/Icons/Npcs/Grineer/KelaDeThaym.png"
+    },
+    "/Lotus/Types/Keys/TacAlertKeyWaterFightD": {
+        sndr: "/Lotus/Language/Bosses/BossKelaDeThaym",
+        msg: "/Lotus/Language/Inbox/WaterFightRewardMsgD",
+        sub: "/Lotus/Language/Inbox/WaterFightRewardSubjectD",
+        icon: "/Lotus/Interface/Icons/Npcs/Grineer/KelaDeThaym.png"
+    },
+    "/Lotus/Types/Keys/WolfTacAlertA": {
+        sndr: "/Lotus/Language/Bosses/NoraNight",
+        msg: "/Lotus/Language/Inbox/WolfTacAlertBody",
+        sub: "/Lotus/Language/Inbox/WolfTacAlertTitle",
+        icon: "/Lotus/Interface/Icons/Npcs/Seasonal/NoraNight.png"
+    },
+    "/Lotus/Types/Keys/WolfTacAlertxB": {
+        sndr: "/Lotus/Language/Bosses/NoraNight",
+        msg: "/Lotus/Language/Inbox/WolfTacAlertHardBody",
+        sub: "/Lotus/Language/Inbox/WolfTacAlertHardTitle",
+        icon: "/Lotus/Interface/Icons/Npcs/Seasonal/NoraNight.png"
+    },
+    "/Lotus/Types/Keys/WolfTacAlertReduxA": {
+        sndr: "/Lotus/Language/Bosses/NoraNight",
+        msg: "/Lotus/Language/Inbox/WolfTacAlertBody",
+        sub: "/Lotus/Language/Inbox/WolfTacAlertTitle",
+        icon: "/Lotus/Interface/Icons/Npcs/Seasonal/NoraNight.png"
+    },
+    "/Lotus/Types/Keys/WolfTacAlertReduxB": {
+        sndr: "/Lotus/Language/Bosses/NoraNight",
+        msg: "/Lotus/Language/Inbox/WolfTacAlertBody",
+        sub: "/Lotus/Language/Inbox/WolfTacAlertTitle",
+        icon: "/Lotus/Interface/Icons/Npcs/Seasonal/NoraNight.png"
+    },
+    "/Lotus/Types/Keys/WolfTacAlertReduxD": {
+        sndr: "/Lotus/Language/Bosses/NoraNight",
+        msg: "/Lotus/Language/Inbox/WolfTacAlertBody",
+        sub: "/Lotus/Language/Inbox/WolfTacAlertTitle",
+        icon: "/Lotus/Interface/Icons/Npcs/Seasonal/NoraNight.png"
+    },
+    "/Lotus/Types/Keys/WolfTacAlertReduxC": {
+        sndr: "/Lotus/Language/Bosses/NoraNight",
+        msg: "/Lotus/Language/Inbox/WolfTacAlertBody",
+        sub: "/Lotus/Language/Inbox/WolfTacAlertTitle",
+        icon: "/Lotus/Interface/Icons/Npcs/Seasonal/NoraNight.png"
+    },
+    "/Lotus/Types/Keys/LanternEndlessEventKeyA": {
+        sndr: "/Lotus/Language/Bosses/Lotus",
+        msg: "/Lotus/Language/G1Quests/GenericEventRewardMsgDesc",
+        sub: "/Lotus/Language/G1Quests/GenericTacAlertRewardMsgTitle",
+        icon: "/Lotus/Interface/Icons/Npcs/LotusVamp_d.png"
+    },
+    "/Lotus/Types/Keys/LanternEndlessEventKeyB": {
+        sndr: "/Lotus/Language/Bosses/Lotus",
+        msg: "/Lotus/Language/G1Quests/GenericEventRewardMsgDesc",
+        sub: "/Lotus/Language/G1Quests/GenericTacAlertRewardMsgTitle",
+        icon: "/Lotus/Interface/Icons/Npcs/LotusVamp_d.png"
+    },
+    "/Lotus/Types/Keys/LanternEndlessEventKeyD": {
+        sndr: "/Lotus/Language/Bosses/Lotus",
+        msg: "/Lotus/Language/G1Quests/GenericEventRewardMsgDesc",
+        sub: "/Lotus/Language/G1Quests/GenericTacAlertRewardMsgTitle",
+        icon: "/Lotus/Interface/Icons/Npcs/LotusVamp_d.png"
+    },
+    "/Lotus/Types/Keys/LanternEndlessEventKeyC": {
+        sndr: "/Lotus/Language/Bosses/Lotus",
+        msg: "/Lotus/Language/G1Quests/GenericEventRewardMsgDesc",
+        sub: "/Lotus/Language/G1Quests/GenericTacAlertRewardMsgTitle",
+        icon: "/Lotus/Interface/Icons/Npcs/LotusVamp_d.png"
+    },
+    "/Lotus/Types/Keys/TacAlertKeyHalloween": {
+        sndr: "/Lotus/Language/Bosses/Lotus",
+        msg: "/Lotus/Language/G1Quests/TacAlertHalloweenRewardsBonusBody",
+        sub: "/Lotus/Language/G1Quests/TacAlertHalloweenRewardsBonusTitle",
+        icon: "/Lotus/Interface/Icons/Npcs/LotusVamp_d.png"
+    },
+    "/Lotus/Types/Keys/TacAlertKeyHalloweenBonus": {
+        sndr: "/Lotus/Language/Bosses/Lotus",
+        msg: "/Lotus/Language/G1Quests/TacAlertHalloweenRewardsBody",
+        sub: "/Lotus/Language/G1Quests/TacAlertHalloweenRewardsTitle",
+        icon: "/Lotus/Interface/Icons/Npcs/LotusVamp_d.png"
+    },
+    "/Lotus/Types/Keys/TacAlertKeyHalloweenTimeAttack": {
+        sndr: "/Lotus/Language/Bosses/Lotus",
+        msg: "/Lotus/Language/G1Quests/TacAlertHalloweenRewardsBody",
+        sub: "/Lotus/Language/G1Quests/TacAlertHalloweenRewardsTitle",
+        icon: "/Lotus/Interface/Icons/Npcs/LotusVamp_d.png"
+    },
+    "/Lotus/Types/Keys/TacAlertKeyProxyRebellionOne": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/G1Quests/RazorbackArmadaRewardBody",
+        sub: "/Lotus/Language/G1Quests/GenericTacAlertSmallRewardMsgTitle",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+        arg: ["CREDIT_REWARD"]
+    },
+    "/Lotus/Types/Keys/TacAlertKeyProxyRebellionTwo": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/G1Quests/RazorbackArmadaRewardBody",
+        sub: "/Lotus/Language/G1Quests/GenericTacAlertSmallRewardMsgTitle",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+        arg: ["CREDIT_REWARD"]
+    },
+    "/Lotus/Types/Keys/TacAlertKeyProxyRebellionThree": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/G1Quests/RazorbackArmadaRewardBody",
+        sub: "/Lotus/Language/G1Quests/GenericTacAlertSmallRewardMsgTitle",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+        arg: ["CREDIT_REWARD"]
+    },
+    "/Lotus/Types/Keys/TacAlertKeyProxyRebellionFour": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/G1Quests/GenericTacAlertBadgeRewardMsgDesc",
+        sub: "/Lotus/Language/G1Quests/GenericTacAlertBadgeRewardMsgTitle",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png"
+    },
+    "/Lotus/Types/Keys/TacAlertKeyProjectNightwatchEasy": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/G1Quests/ProjectNightwatchRewardMsgA",
+        sub: "/Lotus/Language/G1Quests/ProjectNightwatchTacAlertMissionOneTitle",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+        arg: ["CREDIT_REWARD"]
+    },
+    "/Lotus/Types/Keys/TacAlertKeyProjectNightwatch": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/G1Quests/ProjectNightwatchTacAlertMissionRewardBody",
+        sub: "/Lotus/Language/G1Quests/ProjectNightwatchTacAlertMissionTwoTitle",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png"
+    },
+    "/Lotus/Types/Keys/TacAlertKeyProjectNightwatchHard": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/G1Quests/ProjectNightwatchTacAlertMissionRewardBody",
+        sub: "/Lotus/Language/G1Quests/ProjectNightwatchTacAlertMissionThreeTitle",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png"
+    },
+    "/Lotus/Types/Keys/TacAlertKeyProjectNightwatchBonus": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/G1Quests/ProjectNightwatchTacAlertMissionRewardBody",
+        sub: "/Lotus/Language/G1Quests/ProjectNightwatchTacAlertMissionFourTitle",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png"
+    },
+    "/Lotus/Types/Keys/MechSurvivalCorpusShip": {
+        sndr: "/Lotus/Language/Bosses/DeimosFather",
+        msg: "/Lotus/Language/Inbox/MechEvent2020Tier1CompleteDesc",
+        sub: "/Lotus/Language/Inbox/MechEvent2020Tier1CompleteTitle",
+        icon: "/Lotus/Interface/Icons/Npcs/Entrati/Father.png"
+    },
+    "/Lotus/Types/Keys/MechSurvivalGrineerGalleon": {
+        sndr: "/Lotus/Language/Bosses/DeimosFather",
+        msg: "/Lotus/Language/Inbox/MechEvent2020Tier2CompleteDesc",
+        sub: "/Lotus/Language/Inbox/MechEvent2020Tier2CompleteTitle",
+        icon: "/Lotus/Interface/Icons/Npcs/Entrati/Father.png"
+    },
+    "/Lotus/Types/Keys/MechSurvivalGasCity": {
+        sndr: "/Lotus/Language/Bosses/DeimosFather",
+        msg: "/Lotus/Language/Inbox/MechEvent2020Tier3CompleteDesc",
+        sub: "/Lotus/Language/Inbox/MechEvent2020Tier3CompleteTitle",
+        icon: "/Lotus/Interface/Icons/Npcs/Entrati/Father.png"
+    },
+    "/Lotus/Types/Keys/MechSurvivalCorpusShipEndurance": {
+        sndr: "/Lotus/Language/Bosses/DeimosFather",
+        msg: "/Lotus/Language/Inbox/MechEvent2020Tier3CompleteDesc",
+        sub: "/Lotus/Language/Inbox/MechEvent2020Tier3CompleteTitle",
+        icon: "/Lotus/Interface/Icons/Npcs/Entrati/Father.png"
+    },
+    "/Lotus/Types/Keys/MechSurvivalGrineerGalleonEndurance": {
+        sndr: "/Lotus/Language/Bosses/DeimosFather",
+        msg: "/Lotus/Language/Inbox/MechEvent2020Tier3CompleteDesc",
+        sub: "/Lotus/Language/Inbox/MechEvent2020Tier3CompleteTitle",
+        icon: "/Lotus/Interface/Icons/Npcs/Entrati/Father.png"
+    },
+    "/Lotus/Types/Keys/TacAlertKeyAnniversary2019E": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/Messages/Anniversary2024RewardMsgB",
+        sub: "/Lotus/Language/Messages/Anniversary2024MissionTitleB",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+        arg: ["PLAYER_NAME"]
+    },
+    "/Lotus/Types/Keys/TacAlertKeyAnniversary2020F": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/Messages/Anniversary2024RewardMsgC",
+        sub: "/Lotus/Language/Messages/Anniversary2024MissionTitleB",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+        arg: ["PLAYER_NAME"]
+    },
+    "/Lotus/Types/Keys/TacAlertKeyAnniversary2024ChallengeModeA": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/Messages/Anniversary2024RewardMsgD",
+        sub: "/Lotus/Language/Messages/Anniversary2024MissionTitleD",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+        arg: ["PLAYER_NAME"]
+    },
+    "/Lotus/Types/Keys/TacAlertKeyAnniversary2017C": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/Messages/Anniversary2019RewardMsgC",
+        sub: "/Lotus/Language/Messages/Anniversary2019MissionTitleC",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+        arg: ["PLAYER_NAME"]
+    },
+    "/Lotus/Types/Keys/TacAlertKeyAnniversary2020H": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/Messages/Anniversary2020RewardMsgH",
+        sub: "/Lotus/Language/Messages/Anniversary2020MissionTitleH",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+        arg: ["PLAYER_NAME"]
+    },
+    "/Lotus/Types/Keys/TacAlertKeyAnniversary2022J": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/Messages/Anniversary2022RewardMsgJ",
+        sub: "/Lotus/Language/Messages/Anniversary2022MissionTitleJ",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+        arg: ["PLAYER_NAME"]
+    },
+    "/Lotus/Types/Keys/TacAlertKeyAnniversary2025D": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/Messages/Anniversary2025RewardMsgB",
+        sub: "/Lotus/Language/Messages/Anniversary2025MissionTitleB",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+        arg: ["PLAYER_NAME"]
+    },
+    "/Lotus/Types/Keys/TacAlertKeyAnniversary2025ChallengeModeA": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/Messages/Anniversary2025RewardMsgC",
+        sub: "/Lotus/Language/Messages/Anniversary2025MissionTitleC",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+        arg: ["PLAYER_NAME"]
+    },
+    "/Lotus/Types/Keys/TacAlertKeyAnniversary2020G": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/Messages/Anniversary2020RewardMsgG",
+        sub: "/Lotus/Language/Messages/Anniversary2020MissionTitleG",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+        arg: ["PLAYER_NAME"]
+    },
+    "/Lotus/Types/Keys/TacAlertKeyAnniversary2017B": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/Messages/Anniversary2019RewardMsgB",
+        sub: "/Lotus/Language/Messages/Anniversary2019MissionTitleB",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+        arg: ["PLAYER_NAME"]
+    },
+    "/Lotus/Types/Keys/TacAlertKeyAnniversary2017A": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/Messages/Anniversary2019RewardMsgA",
+        sub: "/Lotus/Language/Messages/Anniversary2019MissionTitleA",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+        arg: ["PLAYER_NAME"]
+    },
+    "/Lotus/Types/Keys/TacAlertKeyAnniversary2023K": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/Messages/Anniversary2025RewardMsgG",
+        sub: "/Lotus/Language/Messages/Anniversary2025MissionTitleG",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+        arg: ["PLAYER_NAME"]
+    },
+    "/Lotus/Types/Keys/TacAlertKeyAnniversary2025ChallengeModeB": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/Messages/Anniversary2025RewardMsgD",
+        sub: "/Lotus/Language/Messages/Anniversary2025MissionTitleD",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+        arg: ["PLAYER_NAME"]
+    },
+    "/Lotus/Types/Keys/TacAlertKeyAnniversary2025A": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/Messages/Anniversary2025RewardMsgA",
+        sub: "/Lotus/Language/Messages/Anniversary2025MissionTitleA",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+        arg: ["PLAYER_NAME"]
+    },
+    "/Lotus/Types/Keys/TacAlertKeyAnniversary2018D": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/Messages/Anniversary2024RewardMsgG",
+        sub: "/Lotus/Language/Messages/Anniversary2024MissionTitleG",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+        arg: ["PLAYER_NAME"]
+    },
+    "/Lotus/Types/Keys/TacAlertKeyAnniversary2025C": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/Messages/Anniversary2024RewardMsgF",
+        sub: "/Lotus/Language/Messages/Anniversary2024MissionTitleF",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+        arg: ["PLAYER_NAME"]
+    },
+    "/Lotus/Types/Keys/TacAlertKeyAnniversary2024L": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/Messages/Anniversary2024RewardMsgA",
+        sub: "/Lotus/Language/Messages/Anniversary2024MissionTitleA",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+        arg: ["PLAYER_NAME"]
+    },
+    "/Lotus/Types/Keys/TacAlertKeyAnniversary2024ChallengeModeB": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/Messages/Anniversary2024RewardMsgE",
+        sub: "/Lotus/Language/Messages/Anniversary2024MissionTitleE",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+        arg: ["PLAYER_NAME"]
+    },
+    "/Lotus/Types/Keys/TacAlertKeyAnniversary2021I": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/Messages/Anniversary2024RewardMsgH",
+        sub: "/Lotus/Language/Messages/Anniversary2024MissionTitleH",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+        arg: ["PLAYER_NAME"]
+    },
+    "/Lotus/Types/Keys/TacAlertKeyAnniversary2025B": {
+        sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender",
+        msg: "/Lotus/Language/Messages/Anniversary2025RewardMsgE",
+        sub: "/Lotus/Language/Messages/Anniversary2025MissionTitleE",
+        icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+        arg: ["PLAYER_NAME"]
+    }
+};
+
+const goalMessagesByTag: Record<
+    string,
+    { sndr: string; msg: string; sub: string; icon: string; arg?: string[]; minBuildLabel?: string }[]
+> = {
+    HeatFissure: [
+        {
+            sndr: "/Lotus/Language/Npcs/Eudico",
+            msg: "/Lotus/Language/Messages/OrbHeistEventRewardAInboxMessageBody",
+            sub: "/Lotus/Language/Messages/OrbHeistEventRewardAInboxMessageTitle",
+            icon: "/Lotus/Interface/Icons/Npcs/Eudico.png"
+        },
+        {
+            sndr: "/Lotus/Language/Npcs/Eudico",
+            msg: "/Lotus/Language/Messages/OrbHeistEventRewardBInboxMessageBody",
+            sub: "/Lotus/Language/Messages/OrbHeistEventRewardBInboxMessageTitle",
+            icon: "/Lotus/Interface/Icons/Npcs/Eudico.png"
+        },
+        {
+            sndr: "/Lotus/Language/Npcs/Eudico",
+            msg: "/Lotus/Language/Messages/OrbHeistEventRewardCInboxMessageBody",
+            sub: "/Lotus/Language/Messages/OrbHeistEventRewardCInboxMessageTitle",
+            icon: "/Lotus/Interface/Icons/Npcs/Eudico.png"
+        },
+        {
+            sndr: "/Lotus/Language/Npcs/Eudico",
+            msg: "/Lotus/Language/Messages/OrbHeistEventRewardDInboxMessageBody",
+            sub: "/Lotus/Language/Messages/OrbHeistEventRewardDInboxMessageTitle",
+            icon: "/Lotus/Interface/Icons/Npcs/Eudico.png"
+        },
+        {
+            sndr: "/Lotus/Language/Npcs/Eudico",
+            msg: "/Lotus/Language/Messages/OrbHeistEventRewardEInboxMessageBody",
+            sub: "/Lotus/Language/Messages/OrbHeistEventRewardEInboxMessageTitle",
+            icon: "/Lotus/Interface/Icons/Npcs/Eudico.png"
+        }
+    ],
+    HiveEvent: [
+        {
+            sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender", // Maybe?
+            msg: "/Lotus/Language/G1Quests/HiveEventRewardOneMessageDesc",
+            sub: "/Lotus/Language/G1Quests/HiveEventRewardOneMessageTitle",
+            icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+            minBuildLabel: gameToBuildVersion["14.0.0"]
+        },
+        {
+            sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender", // Maybe?
+            msg: "/Lotus/Language/G1Quests/HiveEventRewardTwoMessageDesc",
+            sub: "/Lotus/Language/G1Quests/HiveEventRewardTwoMessageTitle",
+            icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+            minBuildLabel: gameToBuildVersion["14.0.0"]
+        },
+        {
+            sndr: "/Lotus/Language/Menu/Mailbox_WarframeSender", // Maybe?
+            msg: "/Lotus/Language/G1Quests/HiveEventRewardThreeMessageDesc",
+            sub: "/Lotus/Language/G1Quests/HiveEventRewardThreeMessageTitle",
+            icon: "/Lotus/Interface/Icons/Npcs/Lotus_d.png",
+            arg: ["PLAYER_NAME"],
+            minBuildLabel: gameToBuildVersion["14.0.0"]
+        }
+    ]
+};

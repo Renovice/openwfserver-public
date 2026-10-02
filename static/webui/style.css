@@ -1,0 +1,60 @@
+@media (min-width: 992px) {
+    body.logged-in #main-view {
+        display: flex;
+    }
+
+    body.logged-in #sidebar {
+        position: fixed;
+    }
+
+    body.logged-in #main-content {
+        margin-left: 7rem;
+    }
+
+    body.logged-in:has([data-lang="de"].active) #main-content,
+    body.logged-in:has([data-lang="fr"].active) #main-content,
+    body.logged-in:has([data-lang="uk"].active) #main-content {
+        margin-left: 8rem;
+    }
+
+    body.logged-in:has([data-lang="zh"].active) #main-content {
+        margin-left: 6rem;
+    }
+
+    body:not(.logged-in) #sidebar {
+        display: none;
+    }
+}
+
+body:not(.logged-in) .user-dropdown {
+    display: none;
+}
+
+.card-body .table.mb-0 tr:last-child {
+    border-bottom-color: transparent;
+}
+
+/* font awesome icons */
+svg {
+    fill: currentColor;
+    height: 1em;
+}
+td.text-end > a > svg {
+    margin-left: 0.5em;
+    margin-bottom: 4px; /* to centre the icon */
+}
+
+/* if an item name is super long, ensure it doesn't prevent the user from using actions */
+.card-body {
+    overflow: auto;
+}
+
+/* fixes for navbar on small resolutions due to not being navbar-expand */
+.navbar.sticky-top .navbar-nav {
+    flex-direction: row;
+}
+
+.dropdown-toggle {
+    padding-right: var(--bs-navbar-nav-link-padding-x);
+    padding-left: var(--bs-navbar-nav-link-padding-x);
+}

@@ -1,0 +1,8 @@
+src/routes/api.ts
+static/fixed_responses/data/
+static/webui/libs/
+*.html
+*.md
+config.json
+config-vanilla.json
+static/generated/

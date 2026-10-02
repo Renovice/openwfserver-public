@@ -1,0 +1,2019 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <title>OpenWF WebUI</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="/webui/libs/bootstrap.min.css" />
+    <link rel="stylesheet" href="/webui/style.css" />
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg sticky-top bg-body-tertiary">
+        <div class="container">
+            <button class="navbar-toggler d-lg-none me-3" type="button" data-bs-toggle="offcanvas" data-bs-target="#sidebar" aria-controls="sidebar" aria-label="Toggle sidebar">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <a class="navbar-brand">OpenWF WebUI</a>
+            <div class="ms-auto nav-item dropdown">
+                <button id="active-lang-name" class="nav-link dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false"></button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item active" href="#" data-lang="en" onclick="event.preventDefault();setLanguage('en');">English</a></li>
+                    <li><a class="dropdown-item" href="#" data-lang="de" onclick="event.preventDefault();setLanguage('de');">Deutsch</a></li>
+                    <li><a class="dropdown-item" href="#" data-lang="es" onclick="event.preventDefault();setLanguage('es');">Español</a></li>
+                    <li><a class="dropdown-item" href="#" data-lang="fr" onclick="event.preventDefault();setLanguage('fr');">Français</a></li>
+                    <li><a class="dropdown-item" href="#" data-lang="it" onclick="event.preventDefault();setLanguage('it');">Italiano</a></li>
+                    <li><a class="dropdown-item" href="#" data-lang="ja" onclick="event.preventDefault();setLanguage('ja');">日本語</a></li>
+                    <li><a class="dropdown-item" href="#" data-lang="ko" onclick="event.preventDefault();setLanguage('ko');">한국어</a></li>
+                    <li><a class="dropdown-item" href="#" data-lang="pl" onclick="event.preventDefault();setLanguage('pl');">Polski</a></li>
+                    <li><a class="dropdown-item" href="#" data-lang="pt" onclick="event.preventDefault();setLanguage('pt');">Português</a></li>
+                    <li><a class="dropdown-item" href="#" data-lang="ru" onclick="event.preventDefault();setLanguage('ru');">Русский</a></li>
+                    <li><a class="dropdown-item" href="#" data-lang="tr" onclick="event.preventDefault();setLanguage('tr');">Türkçe</a></li>
+                    <li><a class="dropdown-item" href="#" data-lang="uk" onclick="event.preventDefault();setLanguage('uk');">Українська</a></li>
+                    <li><a class="dropdown-item" href="#" data-lang="zh" onclick="event.preventDefault();setLanguage('zh');">简体中文</a></li>
+                    <li><a class="dropdown-item" href="#" data-lang="tc" onclick="event.preventDefault();setLanguage('tc');">繁體中文</a></li>
+                    <li><a class="dropdown-item" href="#" data-lang="th" onclick="event.preventDefault();setLanguage('th');">แบบไทย</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item active" href="#" data-loc="theme_dark" data-theme="dark" onclick="event.preventDefault();setTheme('dark');"></a></li>
+                    <li><a class="dropdown-item" href="#" data-loc="theme_light" data-theme="light" onclick="event.preventDefault();setTheme('light');"></a></li>
+                </ul>
+            </div>
+            <div class="nav-item dropdown user-dropdown">
+                <button class="nav-link dropdown-toggle displayname" data-bs-toggle="dropdown" aria-expanded="false"></button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="#" onclick="event.preventDefault();doLogout();" data-loc="navbar_logout"></a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" href="#" onclick="event.preventDefault();changeAccountPassword();" data-loc="navbar_changePassword"></a></li>
+                    <li><a class="dropdown-item" href="#" onclick="event.preventDefault();changeAccountEmail();" data-loc="navbar_changeEmail"></a></li>
+                    <li><a class="dropdown-item" href="#" onclick="event.preventDefault();renameAccount();" data-loc="navbar_renameAccount"></a></li>
+                    <li><a class="dropdown-item" href="#" onclick="event.preventDefault();deleteAccount();" data-loc="navbar_deleteAccount"></a></li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+    <div class="container pt-3 pb-3" id="main-view">
+        <div class="offcanvas-lg offcanvas-start" tabindex="-1" id="sidebar" aria-labelledby="sidebarLabel">
+            <div class="offcanvas-header">
+                <h5 class="offcanvas-title" id="sidebarLabel">OpenWF WebUI</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#sidebar" aria-label="Close"></button>
+            </div>
+            <div class="offcanvas-body">
+                <div class="navbar p-0">
+                    <ul class="navbar-nav justify-content-end">
+                        <li class="nav-item">
+                            <a class="nav-link" href="/webui/inventory" data-bs-dismiss="offcanvas" data-bs-target="#sidebar" data-loc="navbar_inventory"></a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/webui/mods" data-bs-dismiss="offcanvas" data-bs-target="#sidebar" data-loc="navbar_mods"></a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/webui/cheats" data-bs-dismiss="offcanvas" data-bs-target="#sidebar" data-loc="navbar_cheats"></a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/webui/import" data-bs-dismiss="offcanvas" data-bs-target="#sidebar" data-loc="navbar_import"></a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/webui/clan" data-bs-dismiss="offcanvas" data-bs-target="#sidebar" data-loc="navbar_guildView"></a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/webui/users" data-bs-dismiss="offcanvas" data-bs-target="#sidebar" data-loc="admin_users"></a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <div id="main-content" class="w-100">
+            <div data-route="/webui/" data-title-tag="login_title">
+                <p data-loc="login_description"></p>
+                <form onsubmit="doLogin();return false;">
+                    <label for="email" data-loc="login_emailLabel"></label>
+                    <input class="form-control" type="text" id="email" required />
+                    <br />
+                    <label for="password" data-loc="login_passwordLabel"></label>
+                    <input class="form-control" type="password" id="password" required />
+                    <br />
+                    <button class="btn btn-primary" type="submit" data-loc="login_loginButton"></button>
+                    <button class="btn btn-secondary" type="submit" onclick="registerSubmit = true;" data-loc="login_registerButton"></button>
+                </form>
+            </div>
+            <div data-route="/webui/inventory" data-title-tag="navbar_inventory">
+                <p class="mb-3 inventory-update-note"></p>
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <ul class="nav nav-tabs card-header-tabs">
+                            <li class="nav-item">
+                                <button class="nav-link" id="miscItems-tab" data-bs-toggle="tab" data-bs-target="#miscItems-tab-content" data-loc="inventory_addItems"></button>
+                            </li>
+                            <li class="nav-item">
+                                <button class="nav-link" id="typeName-tab" data-bs-toggle="tab" data-bs-target="#typeName-tab-content" data-loc="inventory_addItemByItemType"></button>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="card-body">
+                        <div class="tab-content">
+                            <div class="tab-pane" id="miscItems-tab-content">
+                                <form class="card-body input-group" onsubmit="doAcquireCountItems('miscitems');return false;">
+                                    <input class="form-control" id="miscitems-count" type="number" value="1" />
+                                    <input class="form-control w-50" id="acquire-type-miscitems" list="datalist-miscitems" autocomplete="off" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                            </div>
+                            <div class="tab-pane" id="typeName-tab-content">
+                                <form class="card-body" onsubmit="addItemByItemType();return false;">
+                                    <p data-loc="inventory_addItemByItemType_warning"></p>
+                                    <div class="input-group">
+                                        <input class="form-control" id="typeName-count" type="number" value="1" />
+                                        <input class="form-control w-50" id="typeName-type" />
+                                        <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-4">
+                        <div class="card">
+                            <h5 class="card-header" data-loc-itemMap="/Lotus/Language/Menu/Store_BuyWithCredits"></h5>
+                            <div class="card-body">
+                                <p class="card-text" id="RegularCredits-owned"></p>
+                                <form class="input-group" onsubmit="doAddCurrency('RegularCredits');return false;">
+                                    <input class="form-control" id="RegularCredits-delta" type="number" value="1000000" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addCredits"></button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card">
+                            <h5 class="card-header" data-loc-itemMap="/Lotus/Language/Dojo/TradeTypePlatinum"></h5>
+                            <div class="card-body">
+                                <p class="card-text" id="PremiumCredits-owned"></p>
+                                <form class="input-group" onsubmit="doAddCurrency('PremiumCredits');return false;">
+                                    <input class="form-control" id="PremiumCredits-delta" type="number" value="100" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addPlatinum"></button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card">
+                            <h5 class="card-header" data-loc-itemMap="/Lotus/Language/PrimeStore/Store_PrimeTokens"></h5>
+                            <div class="card-body">
+                                <p class="card-text" id="PrimeTokens-owned"></p>
+                                <form class="input-group" onsubmit="doAddCurrency('PrimeTokens');return false;">
+                                    <input class="form-control" id="PrimeTokens-delta" type="number" value="1" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addRegalAya"></button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <h5 class="card-header" data-loc-itemMap="/Lotus/Language/Items/FusionBundle"></h5>
+                            <div class="card-body">
+                                <p class="card-text" id="FusionPoints-owned"></p>
+                                <form class="input-group" onsubmit="doAddCurrency('FusionPoints');return false;">
+                                    <input class="form-control" id="FusionPoints-delta" type="number" value="1000" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addEndo"></button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card">
+                            <h5 class="card-header" data-loc-itemMap-norm="/Lotus/Language/Menu/CrewShipFusionPointsName"></h5>
+                            <div class="card-body">
+                                <p class="card-text" id="CrewShipFusionPoints-owned"></p>
+                                <form class="input-group" onsubmit="doAddCurrency('CrewShipFusionPoints');return false;">
+                                    <input class="form-control" id="CrewShipFusionPoints-delta" type="number" value="1000" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addDirac"></button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-lg-6">
+                        <div class="card" style="height: 400px;">
+                            <div class="card-header" data-cardType="Suits"></div>
+                            <div class="card-body d-flex flex-column">
+                                <form class="input-group mb-3" onsubmit="doAcquireEquipment('Suits');return false;">
+                                    <input class="form-control" id="acquire-type-Suits" list="datalist-Suits" autocomplete="off" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                                <div class="overflow-auto">
+                                    <table class="table table-hover w-100">
+                                        <tbody id="Suits-list"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="card" style="height: 400px;">
+                            <div class="card-header" data-cardType="LongGuns"></div>
+                            <div class="card-body d-flex flex-column">
+                                <form class="input-group mb-3" onsubmit="handleModularSelection('LongGuns');return false;">
+                                    <input class="form-control" id="acquire-type-LongGuns" list="datalist-LongGuns" autocomplete="off" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                                <form class="input-group mb-3 d-none" id="modular-LongGuns">
+                                    <input class="form-control" id="acquire-type-LongGuns-GUN_BARREL" list="datalist-ModularParts-GUN_BARREL" autocomplete="off" />
+                                    <input class="form-control" id="acquire-type-LongGuns-GUN_PRIMARY_HANDLE" list="datalist-ModularParts-GUN_PRIMARY_HANDLE" autocomplete="off" />
+                                    <input class="form-control" id="acquire-type-LongGuns-GUN_CLIP" list="datalist-ModularParts-GUN_CLIP" autocomplete="off" />
+                                </form>
+                                <div class="overflow-auto">
+                                    <table class="table table-hover w-100">
+                                        <tbody id="LongGuns-list"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-lg-6">
+                        <div class="card" style="height: 400px;">
+                            <div class="card-header" data-cardType="Pistols"></div>
+                            <div class="card-body d-flex flex-column">
+                                <form class="input-group mb-3" onsubmit="handleModularSelection('Pistols');return false;">
+                                    <input class="form-control" id="acquire-type-Pistols" list="datalist-Pistols" autocomplete="off" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                                <form class="input-group mb-3 d-none" id="modular-Pistols">
+                                    <input class="form-control" id="acquire-type-Pistols-GUN_BARREL" list="datalist-ModularParts-GUN_BARREL" autocomplete="off" />
+                                    <input class="form-control" id="acquire-type-Pistols-GUN_SECONDARY_HANDLE" list="datalist-ModularParts-GUN_SECONDARY_HANDLE" autocomplete="off" />
+                                    <input class="form-control" id="acquire-type-Pistols-GUN_CLIP" list="datalist-ModularParts-GUN_CLIP" autocomplete="off" />
+                                </form>
+                                <div class="overflow-auto">
+                                    <table class="table table-hover w-100">
+                                        <tbody id="Pistols-list"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="card" style="height: 400px;">
+                            <div class="card-header" data-cardType="Melee"></div>
+                            <div class="card-body d-flex flex-column">
+                                <form class="input-group mb-3" onsubmit="handleModularSelection('Melee');return false;">
+                                    <input class="form-control" id="acquire-type-Melee" list="datalist-Melee" autocomplete="off" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                                <form class="input-group mb-3 d-none" id="modular-Melee">
+                                    <input class="form-control" id="acquire-type-Melee-BLADE" list="datalist-ModularParts-BLADE" autocomplete="off" />
+                                    <input class="form-control" id="acquire-type-Melee-HILT" list="datalist-ModularParts-HILT" autocomplete="off" />
+                                    <input class="form-control" id="acquire-type-Melee-HILT_WEIGHT" list="datalist-ModularParts-HILT_WEIGHT" autocomplete="off" />
+                                </form>
+                                <div class="overflow-auto">
+                                    <table class="table table-hover w-100">
+                                        <tbody id="Melee-list"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-lg-6">
+                        <div class="card" style="height: 400px;">
+                            <div class="card-header" data-cardType="SpaceSuits"></div>
+                            <div class="card-body d-flex flex-column">
+                                <form class="input-group mb-3" onsubmit="doAcquireEquipment('SpaceSuits');return false;">
+                                    <input class="form-control" id="acquire-type-SpaceSuits" list="datalist-SpaceSuits" autocomplete="off" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                                <div class="overflow-auto">
+                                    <table class="table table-hover w-100">
+                                        <tbody id="SpaceSuits-list"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="card" style="height: 400px;">
+                            <div class="card-header" data-cardType="SpaceGuns"></div>
+                            <div class="card-body d-flex flex-column">
+                                <form class="input-group mb-3" onsubmit="doAcquireEquipment('SpaceGuns');return false;">
+                                    <input class="form-control" id="acquire-type-SpaceGuns" list="datalist-SpaceGuns" autocomplete="off" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                                <div class="overflow-auto">
+                                    <table class="table table-hover w-100">
+                                        <tbody id="SpaceGuns-list"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-lg-6">
+                        <div class="card" style="height: 400px;">
+                            <div class="card-header" data-cardType="SpaceMelee"></div>
+                            <div class="card-body d-flex flex-column">
+                                <form class="input-group mb-3" onsubmit="doAcquireEquipment('SpaceMelee');return false;">
+                                    <input class="form-control" id="acquire-type-SpaceMelee" list="datalist-SpaceMelee" autocomplete="off" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                                <div class="overflow-auto">
+                                    <table class="table table-hover w-100">
+                                        <tbody id="SpaceMelee-list"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="card" style="height: 400px;">
+                            <div class="card-header" data-cardType="MechSuits"></div>
+                            <div class="card-body d-flex flex-column">
+                                <form class="input-group mb-3" onsubmit="doAcquireEquipment('MechSuits');return false;">
+                                    <input class="form-control" id="acquire-type-MechSuits" list="datalist-MechSuits" autocomplete="off" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                                <div class="overflow-auto">
+                                    <table class="table table-hover w-100">
+                                        <tbody id="MechSuits-list"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-lg-6">
+                        <div class="card" style="height: 400px;">
+                            <div class="card-header" data-cardType="Sentinels"></div>
+                            <div class="card-body d-flex flex-column">
+                                <form class="input-group mb-3" onsubmit="doAcquireEquipment('Sentinels');return false;">
+                                    <input class="form-control" id="acquire-type-Sentinels" list="datalist-Sentinels" autocomplete="off" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                                <div class="overflow-auto">
+                                    <table class="table table-hover w-100">
+                                        <tbody id="Sentinels-list"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="card" style="height: 400px;">
+                            <div class="card-header" data-cardType="MoaPets"></div>
+                            <div class="card-body d-flex flex-column">
+                                <form class="input-group mb-3" onsubmit="handleModularSelection('MoaPets');return false;">
+                                    <input class="form-control" id="acquire-type-MoaPets" list="datalist-MoaPets" autocomplete="off" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                                <form class="input-group mb-3 d-none" id="modular-MoaPets-Moa">
+                                    <input class="form-control" id="acquire-type-MoaPets-MOA_ENGINE" list="datalist-ModularParts-MOA_ENGINE" autocomplete="off" />
+                                    <input class="form-control" id="acquire-type-MoaPets-MOA_PAYLOAD" list="datalist-ModularParts-MOA_PAYLOAD" autocomplete="off" />
+                                    <input class="form-control" id="acquire-type-MoaPets-MOA_HEAD" list="datalist-ModularParts-MOA_HEAD" autocomplete="off" />
+                                    <input class="form-control" id="acquire-type-MoaPets-MOA_LEG" list="datalist-ModularParts-MOA_LEG" autocomplete="off" />
+                                </form>
+                                <form class="input-group mb-3 d-none" id="modular-MoaPets-Zanuka">
+                                    <input class="form-control" id="acquire-type-MoaPets-ZANUKA_HEAD" list="datalist-ModularParts-ZANUKA_HEAD" autocomplete="off" />
+                                    <input class="form-control" id="acquire-type-MoaPets-ZANUKA_BODY" list="datalist-ModularParts-ZANUKA_BODY" autocomplete="off" />
+                                    <input class="form-control" id="acquire-type-MoaPets-ZANUKA_LEG" list="datalist-ModularParts-ZANUKA_LEG" autocomplete="off" />
+                                    <input class="form-control" id="acquire-type-MoaPets-ZANUKA_TAIL" list="datalist-ModularParts-ZANUKA_TAIL" autocomplete="off" />
+                                </form>
+                                <div class="overflow-auto">
+                                    <table class="table table-hover w-100">
+                                        <tbody id="MoaPets-list"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-lg-6">
+                        <div class="card" style="height: 400px;">
+                            <div class="card-header" data-cardType="KubrowPets"></div>
+                            <div class="card-body d-flex flex-column">
+                                <form class="input-group mb-3" onsubmit="handleModularSelection('KubrowPets');return false;">
+                                    <input class="form-control" id="acquire-type-KubrowPets" list="datalist-KubrowPets" autocomplete="off" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                                <form class="input-group mb-3 d-none" id="modular-KubrowPets-Catbrow">
+                                    <input class="form-control" id="acquire-type-KubrowPets-CATBROW_ANTIGEN" list="datalist-ModularParts-CATBROW_ANTIGEN" autocomplete="off" />
+                                    <input class="form-control" id="acquire-type-KubrowPets-CATBROW_MUTAGEN" list="datalist-ModularParts-CATBROW_MUTAGEN" autocomplete="off" />
+                                </form>
+                                <form class="input-group mb-3 d-none" id="modular-KubrowPets-Kubrow">
+                                    <input class="form-control" id="acquire-type-KubrowPets-KUBROW_ANTIGEN" list="datalist-ModularParts-KUBROW_ANTIGEN" autocomplete="off" />
+                                    <input class="form-control" id="acquire-type-KubrowPets-KUBROW_MUTAGEN" list="datalist-ModularParts-KUBROW_MUTAGEN" autocomplete="off" />
+                                </form>
+                                <div class="overflow-auto">
+                                    <table class="table table-hover w-100">
+                                        <tbody id="KubrowPets-list"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="card" style="height: 400px;">
+                            <div class="card-header" data-cardType="SentinelWeapons"></div>
+                            <div class="card-body d-flex flex-column">
+                                <form class="input-group mb-3" onsubmit="doAcquireEquipment('SentinelWeapons');return false;">
+                                    <input class="form-control" id="acquire-type-SentinelWeapons" list="datalist-SentinelWeapons" autocomplete="off" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                                <div class="overflow-auto">
+                                    <table class="table table-hover w-100">
+                                        <tbody id="SentinelWeapons-list"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-lg-6">
+                        <div class="card" style="height: 400px;">
+                            <div class="card-header" data-cardType="OperatorAmps"></div>
+                            <div class="card-body d-flex flex-column">
+                                <form class="input-group mb-3" onsubmit="handleModularSelection('OperatorAmps');return false;">
+                                    <input class="form-control" id="acquire-type-OperatorAmps" list="datalist-OperatorAmps" autocomplete="off" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                                <form class="input-group mb-3 d-none" id="modular-OperatorAmps">
+                                    <input class="form-control" id="acquire-type-OperatorAmps-AMP_OCULUS" list="datalist-ModularParts-AMP_OCULUS" autocomplete="off" />
+                                    <input class="form-control" id="acquire-type-OperatorAmps-AMP_CORE" list="datalist-ModularParts-AMP_CORE" autocomplete="off" />
+                                    <input class="form-control" id="acquire-type-OperatorAmps-AMP_BRACE" list="datalist-ModularParts-AMP_BRACE" autocomplete="off" />
+                                </form>
+                                <div class="overflow-auto">
+                                    <table class="table table-hover w-100">
+                                        <tbody id="OperatorAmps-list"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="card" style="height: 400px;">
+                            <div class="card-header" data-cardType="Hoverboards"></div>
+                            <div class="card-body d-flex flex-column">
+                                <form class="input-group mb-3" onsubmit="doAcquireModularEquipment('Hoverboards');return false;">
+                                    <input class="form-control" id="acquire-type-Hoverboards-HB_DECK" list="datalist-ModularParts-HB_DECK" autocomplete="off" />
+                                    <input class="form-control" id="acquire-type-Hoverboards-HB_ENGINE" list="datalist-ModularParts-HB_ENGINE" autocomplete="off" />
+                                    <input class="form-control" id="acquire-type-Hoverboards-HB_FRONT" list="datalist-ModularParts-HB_FRONT" autocomplete="off" />
+                                    <input class="form-control" id="acquire-type-Hoverboards-HB_JET" list="datalist-ModularParts-HB_JET" autocomplete="off" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                                <div class="overflow-auto">
+                                    <table class="table table-hover w-100">
+                                        <tbody id="Hoverboards-list"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-lg-6">
+                        <div class="card" style="height: 400px;">
+                            <div class="card-header" data-cardType="QuestKeys"></div>
+                            <div class="card-body d-flex flex-column">
+                                <form class="input-group mb-3" onsubmit="doAcquireEquipment('QuestKeys');return false;">
+                                    <input class="form-control" id="acquire-type-QuestKeys" list="datalist-QuestKeys" autocomplete="off" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                                <div class="overflow-auto">
+                                    <table class="table table-hover w-100">
+                                        <tbody id="QuestKeys-list"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="card" style="height: 400px;">
+                            <div class="card-header" data-cardType="EvolutionProgress"></div>
+                            <div class="card-body d-flex flex-column">
+                                <form class="input-group mb-3" onsubmit="doAcquireEvolution();return false;">
+                                    <input class="form-control" id="acquire-type-EvolutionProgress" list="datalist-EvolutionProgress" autocomplete="off" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                                <div class="overflow-auto">
+                                    <table class="table table-hover w-100">
+                                        <tbody id="EvolutionProgress-list"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-lg-6">
+                        <div class="card" style="height: 400px;">
+                            <div class="card-header" data-cardType="Boosters"></div>
+                            <div class="card-body d-flex flex-column">
+                                <form class="input-group mb-3" onsubmit="doAcquireBooster();return false;">
+                                    <input class="form-control" id="acquire-type-Boosters" list="datalist-Boosters" autocomplete="off" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                                <div class="overflow-auto">
+                                    <table class="table table-hover w-100">
+                                        <tbody id="Boosters-list"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="card" style="height: 400px;">
+                           <div class="card-header" data-cardType="FlavourItems"></div>
+                            <div class="card-body d-flex flex-column">
+                                <form class="input-group mb-3" onsubmit="doAcquireEquipment('FlavourItems');return false;">
+                                    <input class="form-control" id="acquire-type-FlavourItems" list="datalist-FlavourItems" autocomplete="off" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                                <div class="overflow-auto">
+                                    <table class="table table-hover w-100">
+                                        <tbody id="FlavourItems-list"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-lg-6">
+                        <div class="card" style="height: 400px;">
+                            <div class="card-header" data-cardType="ShipDecorations"></div>
+                            <div class="card-body d-flex flex-column">
+                                <form class="input-group mb-3" onsubmit="doAcquireCountItems('ShipDecorations');return false;">
+                                    <input class="form-control" id="ShipDecorations-count" type="number" value="1" />
+                                    <input class="form-control w-50" id="acquire-type-ShipDecorations" list="datalist-ShipDecorations" autocomplete="off" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                                <div class="overflow-auto">
+                                    <table class="table table-hover w-100">
+                                        <tbody id="ShipDecorations-list"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="card" style="height: 400px;">
+                            <div class="card-header" data-cardType="WeaponSkins"></div>
+                            <div class="card-body d-flex flex-column">
+                                <form class="input-group mb-3" onsubmit="doAcquireEquipment('WeaponSkins');return false;">
+                                    <input class="form-control" id="acquire-type-WeaponSkins" list="datalist-WeaponSkins" autocomplete="off" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                                <div class="overflow-auto">
+                                    <table class="table table-hover w-100">
+                                        <tbody id="WeaponSkins-list"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <h5 class="card-header" data-loc="general_bulkActions"></h5>
+                    <div class="card-body">
+                        <div class="d-flex flex-wrap gap-2">
+                            <button class="btn btn-primary" onclick="removeIsNew();" data-loc="inventory_removeIsNew"></button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div id="guild-route" data-route="/webui/clan, /webui/guildView" data-title-tag="navbar_guildView">
+                <h3 id="guildView-loading" data-loc="general_loading"></h3>
+                <h3 id="guildView-na" class="d-none" data-loc="guildView_na"></h3>
+                <h5 id="guildView-naDescription" class="d-none" data-loc="guildView_naDescription"></h5>
+                <h3 id="guildView-title" class="mb-0"></h3>
+                <p id="guildView-tier" class="text-body-secondary mb-0"></p>
+                <p id="guildView-class" class="text-body-secondary mb-0"></p>
+                <p id="guildView-alliance" class="text-body-secondary"></p>
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <h5 class="card-header" data-loc-itemMap="/Lotus/Language/Menu/Store_BuyWithCredits"></h5>
+                            <div class="card-body">
+                                <p class="card-text" id="VaultRegularCredits-owned"></p>
+                                <form id="vaultRegularCredits-form" class="input-group d-none" onsubmit="doAddCurrency('VaultRegularCredits');return false;">
+                                    <input class="form-control" id="VaultRegularCredits-delta" type="number" value="1000000" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card">
+                            <h5 class="card-header" data-loc-itemMap="/Lotus/Language/Dojo/TradeTypePlatinum"></h5>
+                            <div class="card-body">
+                                <p class="card-text" id="VaultPremiumCredits-owned"></p>
+                                <form id="vaultPremiumCredits-form" class="input-group d-none" onsubmit="doAddCurrency('VaultPremiumCredits');return false;">
+                                    <input class="form-control" id="VaultPremiumCredits-delta" type="number" value="100" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-lg-6">
+                        <div class="card" style="height: 400px;">
+                            <div class="card-header" data-guildCardType="TechProjects"></div>
+                            <div class="card-body d-flex flex-column">
+                                <form id="techProjects-form" class="input-group mb-3 d-none" onsubmit="addGuildTechProject();return false;">
+                                    <input class="form-control" id="acquire-type-TechProjects" list="datalist-TechProjects" autocomplete="off" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                                <div class="overflow-auto">
+                                    <table class="table table-hover w-100">
+                                        <tbody id="TechProjects-list"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="card" style="height: 400px;">
+                            <div class="card-header" data-guildCardType="VaultDecoRecipes"></div>
+                            <div class="card-body d-flex flex-column">
+                                <form id="vaultDecoRecipes-form" class="input-group mb-3 d-none" onsubmit="addVaultItem('VaultDecoRecipes');return false;">
+                                    <input class="form-control" id="acquire-type-VaultDecoRecipes" list="datalist-VaultDecoRecipes" autocomplete="off" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                                <div class="overflow-auto">
+                                    <table class="table table-hover w-100">
+                                        <tbody id="VaultDecoRecipes-list"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-lg-6">
+                        <div class="card" style="height: 400px;">
+                            <div class="card-header" data-guildCardType="VaultMiscItems"></div>
+                            <div class="card-body d-flex flex-column">
+                                <form id="vaultMiscItems-form" class="input-group mb-3 d-none" onsubmit="addVaultItem('VaultMiscItems');return false;">
+                                    <input class="form-control" id="VaultMiscItems-count" type="number" value="1" />
+                                    <input class="form-control w-50" id="acquire-type-VaultMiscItems" list="datalist-VaultMiscItems" autocomplete="off" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                                <div class="overflow-auto">
+                                    <table class="table table-hover w-100">
+                                        <tbody id="VaultMiscItems-list"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="card" style="height: 400px;">
+                            <div class="card-header" data-guildCardType="VaultShipDecorations"></div>
+                            <div class="card-body d-flex flex-column">
+                                <form id="vaultShipDecorations-form" class="input-group mb-3 d-none" onsubmit="addVaultItem('VaultShipDecorations');return false;">
+                                    <input class="form-control" id="VaultShipDecorations-count" type="number" value="1" />
+                                    <input class="form-control w-50" id="acquire-type-VaultShipDecorations" list="datalist-ShipDecorations" autocomplete="off" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                </form>
+                                <div class="overflow-auto">
+                                    <table class="table table-hover w-100">
+                                        <tbody id="VaultShipDecorations-list"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-lg-6">
+                        <div class="card" style="height: 400px;">
+                            <h5 class="card-header" data-loc-itemMap-norm="/Lotus/Language/Menu/Members"></h5>
+                            <div class="card-body overflow-auto">
+                                <table class="table table-hover w-100">
+                                    <tbody id="Members-list"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="card" style="height: 400px;">
+                            <h5 class="card-header" data-loc-itemMap="/Lotus/Language/Clan/Clan_AllianceBtnTitle"></h5>
+                            <div class="card-body overflow-auto">
+                                <table class="table table-hover w-100">
+                                    <tbody id="Alliance-list"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row g-3 mb-3">
+                    <div class="col-lg-6">
+                        <div class="card mb-3">
+                        <h5 class="card-header" data-loc="guildView_cheats"></h5>
+                            <div class="card-body" id="guild-cheats">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="noDojoRoomBuildStage" data-enabling-permission="toggleCheat.noDojoRoomBuildStage" />
+                                    <label class="form-check-label" for="noDojoRoomBuildStage" data-loc="cheats_noDojoRoomBuildStage"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="fastDojoRoomDestruction" data-enabling-permission="toggleCheat.fastDojoRoomDestruction" />
+                                    <label class="form-check-label" for="fastDojoRoomDestruction" data-loc="cheats_fastDojoRoomDestruction"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="noDojoDecoBuildStage" data-enabling-permission="toggleCheat.noDojoDecoBuildStage" />
+                                    <label class="form-check-label" for="noDojoDecoBuildStage" data-loc="cheats_noDojoDecoBuildStage"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="noDojoResearchCosts" data-enabling-permission="toggleCheat.noDojoResearchCosts" />
+                                    <label class="form-check-label" for="noDojoResearchCosts" data-loc="cheats_noDojoResearchCosts"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="noDojoResearchTime" data-enabling-permission="toggleCheat.noDojoResearchTime" />
+                                    <label class="form-check-label" for="noDojoResearchTime" data-loc="cheats_noDojoResearchTime"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="fastClanAscension" data-enabling-permission="toggleCheat.fastClanAscension" />
+                                    <label class="form-check-label" for="fastClanAscension" data-loc="cheats_fastClanAscension"></label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div id="detailedView-route" data-route="/webui/details, /webui/detailedView" data-title-tag="navbar_inventory">
+                <h3 id="detailedView-loading" class="mb-0" data-loc="general_loading"></h3>
+                <h3 id="detailedView-title" class="mb-0"></h3>
+                <p class="text-body-secondary"></p>
+                <div id="loadout-card" class="card mb-3 d-none">
+                    <h5 class="card-header" data-loc="detailedView_loadoutLabel"></h5>
+                    <div class="card-body">
+                        <ul class="nav nav-tabs" id="loadoutTabs"></ul>
+                        <div class="tab-content mt-3" id="loadoutTabsContent"></div>
+                    </div>
+                </div>
+                <div id="archonShards-card" class="card mb-3 d-none">
+                    <h5 class="card-header" data-loc="detailedView_archonShardsLabel"></h5>
+                    <div class="card-body">
+                        <p>
+                            <span data-loc="detailedView_archonShardsDescription"></span>
+                            <span data-loc="detailedView_archonShardsDescription2"></span>
+                        </p>
+                        <form class="input-group mb-3" onsubmit="doPushArchonCrystalUpgrade();return false;">
+                            <input type="number" id="archon-crystal-add-count" min="1" max="10000" value="1" class="form-control" style="max-width:100px" />
+                            <span class="input-group-text">x</span>
+                            <input class="form-control" list="datalist-archonCrystalUpgrades" autocomplete="off" />
+                            <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                        </form>
+                        <table class="table table-hover w-100">
+                            <tbody id="crystals-list"></tbody>
+                        </table>
+                    </div>
+                </div>
+                <div id="edit-suit-invigorations-card" class="card mb-3 d-none">
+                    <h5 class="card-header" data-loc="detailedView_invigorationLabel"></h5>
+                    <div class="card-body">
+                        <form onsubmit="submitInvigoration(event)">
+                            <div class="mb-3">
+                                <label for="invigoration-offensive" class="form-label" data-loc="detailedView_invigorationOffensiveLabel"></label>
+                                <select class="form-select" id="invigoration-offensive">
+                                    <option value="" data-loc="general_none"></option>
+                                    <option value="/Lotus/Upgrades/Invigorations/Offensive/OffensiveInvigorationPowerStrength" data-loc-itemMap="/Lotus/Language/Upgrades/AvatarAbilityStrengthModDesc" data-loc-replace="+200"></option>
+                                    <option value="/Lotus/Upgrades/Invigorations/Offensive/OffensiveInvigorationPowerRange" data-loc-itemMap="/Lotus/Language/Upgrades/AvatarAbilityRangeModDesc" data-loc-replace="+100"></option>
+                                    <option value="/Lotus/Upgrades/Invigorations/Offensive/OffensiveInvigorationPowerDuration" data-loc-itemMap="/Lotus/Language/Upgrades/AvatarAbilityDurationModDesc" data-loc-replace="+100"></option>
+                                    <option value="/Lotus/Upgrades/Invigorations/Offensive/OffensiveInvigorationMeleeDamage" data-loc-itemMap="/Lotus/Language/Upgrades/MeleeDamageBuffDesc" data-loc-replace="+250"></option>
+                                    <option value="/Lotus/Upgrades/Invigorations/Offensive/OffensiveInvigorationPrimaryDamage" data-loc-itemMap="/Lotus/Language/Upgrades/PrimaryDamageBuffDesc" data-loc-replace="+250"></option>
+                                    <option value="/Lotus/Upgrades/Invigorations/Offensive/OffensiveInvigorationSecondaryDamage" data-loc-itemMap="/Lotus/Language/Upgrades/SecondaryDamageBuffDesc" data-loc-replace="+250"></option>
+                                    <option value="/Lotus/Upgrades/Invigorations/Offensive/OffensiveInvigorationMeleeCritChance" data-loc-itemMap="/Lotus/Language/Upgrades/MeleeCritChance" data-loc-replace="+200"></option>
+                                    <option value="/Lotus/Upgrades/Invigorations/Offensive/OffensiveInvigorationPrimaryCritChance" data-loc-itemMap="/Lotus/Language/Upgrades/PrimaryCritChance" data-loc-replace="+200"></option>
+                                    <option value="/Lotus/Upgrades/Invigorations/Offensive/OffensiveInvigorationSecondaryCritChance" data-loc-itemMap="/Lotus/Language/Upgrades/SecondaryCritChance" data-loc-replace="+200"></option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label for="invigoration-defensive" class="form-label" data-loc="detailedView_invigorationUtilityLabel"></label>
+                                <select class="form-select" id="invigoration-defensive">
+                                    <option value="" data-loc="general_none"></option>
+                                    <option value="/Lotus/Upgrades/Invigorations/Utility/UtilityInvigorationPowerEfficiency" data-loc-itemMap="/Lotus/Language/Upgrades/AvatarAbilityEfficiencyModDesc" data-loc-replace="+75"></option>
+                                    <option value="/Lotus/Upgrades/Invigorations/Utility/UtilityInvigorationMovementSpeed" data-loc-itemMap="/Lotus/Language/Upgrades/SprintSpeedModDesc" data-loc-replace="+75"></option>
+                                    <option value="/Lotus/Upgrades/Invigorations/Utility/UtilityInvigorationReloadSpeed" data-loc-itemMap="/Lotus/Language/Upgrades/WeaponReloadSpeedModDesc" data-loc-replace="+75"></option>
+                                    <option value="/Lotus/Upgrades/Invigorations/Utility/UtilityInvigorationParkourSpeed" data-loc-itemMap="/Lotus/Language/Upgrades/AvatarParkourBoostModDesc" data-loc-replace="+75"></option>
+                                    <option value="/Lotus/Upgrades/Invigorations/Utility/UtilityInvigorationHealth" data-loc-itemMap="/Lotus/Language/Upgrades/AvatarFlatHealthModDesc" data-loc-replace="+1000"></option>
+                                    <option value="/Lotus/Upgrades/Invigorations/Utility/UtilityInvigorationEnergy" data-loc-itemMap="/Lotus/Language/Upgrades/AvatarPowerMaxModDesc" data-loc-replace="+200"></option>
+                                    <option value="/Lotus/Upgrades/Invigorations/Utility/UtilityInvigorationHealthRegen" data-loc-itemMap="/Lotus/Language/Upgrades/AvatarHealRateModDesc" data-loc-replace="+25"></option>
+                                    <option value="/Lotus/Upgrades/Invigorations/Utility/UtilityInvigorationEnergyRegen" data-loc-itemMap="/Lotus/Language/Upgrades/AvatarPowerRateModDesc" data-loc-replace="+2"></option>
+                                    <option value="/Lotus/Upgrades/Invigorations/Utility/UtilityInvigorationStatusResistance" data-loc-itemMap="/Lotus/Language/Upgrades/StatusImmuneDesc"></option>
+                                    <option value="/Lotus/Upgrades/Invigorations/Utility/UtilityInvigorationArmor" data-loc-itemMap="/Lotus/Language/Upgrades/AvatarFlatArmourModDesc" data-loc-replace="+1000"></option>
+                                    <option value="/Lotus/Upgrades/Invigorations/Utility/UtilityInvigorationJumps" data-loc-itemMap="/Lotus/Language/Upgrades/JumpResetsDesc" data-loc-replace="+5"></option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label for="invigoration-expiry" class="form-label" data-loc="detailedView_invigorationExpiryLabel"></label>
+                                <input type="datetime-local" class="form-control" max="2038-01-19T03:14" id="invigoration-expiry" onblur="this.value=new Date(this.value)>new Date(this.max)?new Date(this.max).toISOString().slice(0,16):this.value"/>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-primary" data-loc="general_setButton"></button>
+                                <button type="button" class="btn btn-danger" onclick="setInvigoration()" data-loc="code_remove"></button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+                <div id="umbraEchoes-card" class="card mb-3 d-none">
+                    <h5 class="card-header" data-loc="detailedView_umbraEchoesLabel"></h5>
+                    <div class="card-body">
+                        <p data-loc="detailedView_umbraEchoesDescription"></p>
+                        <form onsubmit="submitUmbraEchoes(event)">
+                            <div class="mb-3">
+                                <label for="umbraEchoes-expiry" class="form-label" data-loc="detailedView_umbraEchoesExpiryLabel"></label>
+                                <input type="datetime-local" class="form-control" max="2038-01-19T03:14" id="umbraEchoes-expiry" onblur="this.value=new Date(this.value)>new Date(this.max)?new Date(this.max).toISOString().slice(0,16):this.value"/>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button type="submit" class="btn btn-primary" data-loc="general_setButton"></button>
+                                <button type="button" class="btn btn-danger" onclick="setUmbraEchoes()" data-loc="code_remove"></button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+                <div id="modularParts-card" class="card mb-3 d-none">
+                    <h5 class="card-header" data-loc="detailedView_modularPartsLabel"></h5>
+                    <div class="card-body">
+                        <form id="modularParts-form" class="input-group mb-3" onsubmit="handleModularPartsChange(event)"></form>
+                    </div>
+                </div>
+                <div id="valenceBonus-card" class="card mb-3 d-none">
+                    <h5 class="card-header" data-loc="detailedView_valenceBonusLabel"></h5>
+                    <div class="card-body">
+                        <p data-loc="detailedView_valenceBonusDescription"></p>
+                        <form class="input-group mb-3" onsubmit="handleValenceBonusChange(event)">
+                            <select class="form-control" id="valenceBonus-innateDamage"></select>
+                            <input type="number" id="valenceBonus-procent" min="25" max="60" step="0.1" class="form-control" style="max-width:100px" />
+                            <button class="btn btn-primary" type="submit" value="set" data-loc="general_setButton"></button>
+                            <button class="btn btn-danger" type="submit" value="remove" data-loc="code_remove"></button>
+                        </form>
+                    </div>
+                </div>
+                <div id="equipmentFeatures-card" class="card mb-3 d-none">
+                    <h5 class="card-header" data-loc="detailedView_equipmentFeaturesLabel"></h5>
+                    <div id="equipmentFeaturesButtons-card" class="card-body d-flex flex-wrap gap-2"></div>
+                </div>
+                <div id="u5ModEdit-card" class="card mb-3 d-none">
+                    <h5 class="card-header" data-loc="detailedView_u5ModEditLabel"></h5>
+                    <div class="card-body">
+                        <p id="u5ModEdit-Description" data-loc="detailedView_u5ModEditDescription"></p>
+                        <form class="mb-3" onsubmit="handleU5ModEdit(event)">
+                            <div class="d-flex gap-2 align-items-end">
+                                <div class="mb-2">
+                                    <label for="u5ModEdit-fits" class="form-label" data-loc="detailedView_u5ModEditFits"></label>
+                                    <select id="u5ModEdit-fits" class="form-control"></select>
+                                </div>
+                                <div class="mb-2">
+                                    <label for="u5ModEdit-reqLevel" class="form-label" data-loc="detailedView_u5ModEditReqLevel"></label>
+                                    <input type="number" id="u5ModEdit-reqLevel" min="0" max="30" step="1" class="form-control" style="max-width:100px" />
+                                </div>
+                            </div>
+                            <div id="u5ModEdit-upgradeFields" class="mb-2"></div>
+                            <button class="btn btn-primary" type="submit" value="set" data-loc="general_setButton"></button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            <div data-route="/webui/mods" data-title-tag="navbar_mods">
+                <p class="mb-3 inventory-update-note"></p>
+                <div class="row g-3">
+                    <div class="col-xxl-6">
+                        <div class="card mb-3">
+                            <h5 class="card-header" data-loc="mods_addRiven"></h5>
+                            <form class="card-body" onsubmit="doAcquireRiven();return false;">
+                                <select class="form-control mb-3" id="addriven-type">
+                                    <option value="LotusArchgunRandomModRare">LotusArchgunRandomModRare</option>
+                                    <option value="LotusModularMeleeRandomModRare">LotusModularMeleeRandomModRare</option>
+                                    <option value="LotusModularPistolRandomModRare">LotusModularPistolRandomModRare</option>
+                                    <option value="LotusPistolRandomModRare">LotusPistolRandomModRare</option>
+                                    <option value="LotusRifleRandomModRare" selected>LotusRifleRandomModRare</option>
+                                    <option value="LotusShotgunRandomModRare">LotusShotgunRandomModRare</option>
+                                    <option value="PlayerMeleeWeaponRandomModRare">PlayerMeleeWeaponRandomModRare</option>
+                                </select>
+                                <textarea id="addriven-fingerprint" class="form-control mb-3" data-loc-placeholder="mods_fingerprint"></textarea>
+                                <button class="btn btn-primary" style="margin-right: 5px" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                <a href="riven-tool/" target="_blank" data-loc="mods_fingerprintHelp"></a>
+                            </form>
+                        </div>
+                        <div class="card">
+                            <h5 class="card-header" data-loc="mods_rivens"></h5>
+                            <div class="card-body">
+                                <table class="table table-hover w-100">
+                                    <tbody id="riven-list"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-xxl-6">
+                        <div class="card mb-3">
+                            <h5 class="card-header" data-loc="mods_mods"></h5>
+                            <div class="card-body">
+                                <form class="input-group mb-3" onsubmit="doAcquireMod();return false;">
+                                    <input class="form-control" id="mod-count" type="number" value="1"/>
+                                    <input class="form-control w-50" id="mod-to-acquire" list="datalist-mods" autocomplete="off" />
+                                    <button class="btn btn-primary" type="submit" data-loc="general_addButton" data-enabling-permission="addItems"></button>
+                                    <button class="btn btn-success" onclick="window.maxed=true" data-loc="mods_addMax" data-enabling-permission="addItems"></button>
+                                </form>
+                                <table class="table table-hover w-100">
+                                    <tbody id="mods-list"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <h5 class="card-header" data-loc="general_bulkActions"></h5>
+                            <div class="card-body d-flex flex-wrap gap-2">
+                                <button class="btn btn-primary" onclick="doAddAllMods();" data-loc="mods_addMissingUnrankedMods" data-enabling-permission="addItems"></button>
+                                <button class="btn btn-danger" onclick="doRemoveUnrankedMods();" data-loc="mods_removeUnranked"></button>
+                                <button class="btn btn-primary" onclick="doAddMissingMaxRankMods();" data-loc="mods_addMissingMaxRankMods" data-enabling-permission="addItems"></button>
+                                <button class="btn btn-danger" onclick="doRemoveRankedMods();" data-loc="mods_removeRanked"></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div data-route="/webui/cheats, /webui/settings" data-title-tag="navbar_cheats">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <h5 class="card-header" data-loc="cheats_account"></h5>
+                            <div class="card-body" id="account-cheats">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="skipAllDialogue" data-enabling-permission="toggleCheat.skipAllDialogue" />
+                                    <label class="form-check-label" for="skipAllDialogue" data-loc="cheats_skipAllDialogue"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="skipAllPopups" data-enabling-permission="toggleCheat.skipAllPopups" />
+                                    <label class="form-check-label" for="skipAllPopups" data-loc="cheats_skipAllPopups"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="dontSubtractPurchaseCreditCost" data-enabling-permission="toggleCheat.dontSubtractPurchaseCreditCost" />
+                                    <label class="form-check-label" for="dontSubtractPurchaseCreditCost" data-loc="cheats_dontSubtractPurchaseCreditCost"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="dontSubtractPurchasePlatinumCost" data-enabling-permission="toggleCheat.dontSubtractPurchasePlatinumCost" />
+                                    <label class="form-check-label" for="dontSubtractPurchasePlatinumCost" data-loc="cheats_dontSubtractPurchasePlatinumCost"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="dontSubtractRushPlatinumCost" data-enabling-permission="toggleCheat.dontSubtractRushPlatinumCost" />
+                                    <label class="form-check-label" for="dontSubtractRushPlatinumCost" data-loc="cheats_dontSubtractRushPlatinumCost"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="dontSubtractPurchaseItemCost" data-enabling-permission="toggleCheat.dontSubtractPurchaseItemCost" />
+                                    <label class="form-check-label" for="dontSubtractPurchaseItemCost" data-loc="cheats_dontSubtractPurchaseItemCost"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="dontSubtractPurchaseStandingCost" data-enabling-permission="toggleCheat.dontSubtractPurchaseStandingCost" />
+                                    <label class="form-check-label" for="dontSubtractPurchaseStandingCost" data-loc="cheats_dontSubtractPurchaseStandingCost"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="dontSubtractKuvaForRivens" data-enabling-permission="toggleCheat.dontSubtractKuvaForRivens" />
+                                    <label class="form-check-label" for="dontSubtractKuvaForRivens" data-loc="cheats_dontSubtractKuvaForRivens"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="dontSubtractVoidTraces" data-enabling-permission="toggleCheat.dontSubtractVoidTraces" />
+                                    <label class="form-check-label" for="dontSubtractVoidTraces" data-loc="cheats_dontSubtractVoidTraces"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="dontSubtractConsumables" data-enabling-permission="toggleCheat.dontSubtractConsumables" />
+                                    <label class="form-check-label" for="dontSubtractConsumables" data-loc="cheats_dontSubtractConsumables"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="dontSubtractKeys" data-enabling-permission="toggleCheat.dontSubtractKeys" />
+                                    <label class="form-check-label" for="dontSubtractKeys" data-loc="cheats_dontSubtractKeys"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="infiniteCredits" data-enabling-permission="toggleCheat.infiniteCredits" />
+                                    <label class="form-check-label" for="infiniteCredits" data-loc="cheats_infiniteCredits"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="infinitePlatinum" data-enabling-permission="toggleCheat.infinitePlatinum" />
+                                    <label class="form-check-label" for="infinitePlatinum" data-loc="cheats_infinitePlatinum"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="infiniteRegalAya" data-enabling-permission="toggleCheat.infiniteRegalAya" />
+                                    <label class="form-check-label" for="infiniteRegalAya" data-loc="cheats_infiniteRegalAya"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="infiniteEndo" data-enabling-permission="toggleCheat.infiniteEndo" />
+                                    <label class="form-check-label" for="infiniteEndo" data-loc="cheats_infiniteEndo"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="infiniteDirac" data-enabling-permission="toggleCheat.infiniteDirac" />
+                                    <label class="form-check-label" for="infiniteDirac" data-loc="cheats_infiniteDirac"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="infiniteRevives" data-enabling-permission="toggleCheat.infiniteRevives" />
+                                    <label class="form-check-label" for="infiniteRevives" data-loc="cheats_infiniteRevives"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="infiniteTrades" data-enabling-permission="toggleCheat.infiniteTrades" />
+                                    <label class="form-check-label" for="infiniteTrades" data-loc="cheats_infiniteTrades"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="infiniteGifts" data-enabling-permission="toggleCheat.infiniteGifts" />
+                                    <label class="form-check-label" for="infiniteGifts" data-loc="cheats_infiniteGifts"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="infiniteHelminthMaterials" data-enabling-permission="toggleCheat.infiniteHelminthMaterials" />
+                                    <label class="form-check-label" for="infiniteHelminthMaterials" data-loc="cheats_infiniteHelminthMaterials"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="universalPolarityEverywhere" data-enabling-permission="toggleCheat.universalPolarityEverywhere" />
+                                    <label class="form-check-label" for="universalPolarityEverywhere" data-loc="cheats_universalPolarityEverywhere"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="unlockDoubleCapacityPotatoesEverywhere" data-enabling-permission="toggleCheat.unlockDoubleCapacityPotatoesEverywhere" />
+                                    <label class="form-check-label" for="unlockDoubleCapacityPotatoesEverywhere" data-loc="cheats_unlockDoubleCapacityPotatoesEverywhere"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="unlockExilusEverywhere" data-enabling-permission="toggleCheat.unlockExilusEverywhere" />
+                                    <label class="form-check-label" for="unlockExilusEverywhere" data-loc="cheats_unlockExilusEverywhere"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="unlockArcanesEverywhere" data-enabling-permission="toggleCheat.unlockArcanesEverywhere" />
+                                    <label class="form-check-label" for="unlockArcanesEverywhere" data-loc="cheats_unlockArcanesEverywhere"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="alertsRepeatable" data-enabling-permission="toggleCheat.alertsRepeatable" />
+                                    <label class="form-check-label" for="alertsRepeatable" data-loc="cheats_alertsRepeatable"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="syndicateMissionsRepeatable" data-enabling-permission="toggleCheat.syndicateMissionsRepeatable" />
+                                    <label class="form-check-label" for="syndicateMissionsRepeatable" data-loc="cheats_syndicateMissionsRepeatable"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="instantFinishRivenChallenge" data-enabling-permission="toggleCheat.instantFinishRivenChallenge" />
+                                    <label class="form-check-label" for="instantFinishRivenChallenge" data-loc="cheats_instantFinishRivenChallenge"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="completeConclaveChallenges" data-enabling-permission="toggleCheat.completeConclaveChallenges" />
+                                    <label class="form-check-label" for="completeConclaveChallenges" data-loc="cheats_completeConclaveChallenges"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="noDailyStandingLimits" data-enabling-permission="toggleCheat.noDailyStandingLimits" />
+                                    <label class="form-check-label" for="noDailyStandingLimits" data-loc="cheats_noDailyStandingLimits"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="noDailyFocusLimit" data-enabling-permission="toggleCheat.noDailyFocusLimit" />
+                                    <label class="form-check-label" for="noDailyFocusLimit" data-loc="cheats_noDailyFocusLimit"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="noArgonCrystalDecay" data-enabling-permission="toggleCheat.noArgonCrystalDecay" />
+                                    <label class="form-check-label" for="noArgonCrystalDecay" data-loc="cheats_noArgonCrystalDecay"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="noMasteryRankUpCooldown" data-enabling-permission="toggleCheat.noMasteryRankUpCooldown" />
+                                    <label class="form-check-label" for="noMasteryRankUpCooldown" data-loc="cheats_noMasteryRankUpCooldown"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="noVendorPurchaseLimits" data-enabling-permission="toggleCheat.noVendorPurchaseLimits" />
+                                    <label class="form-check-label" for="noVendorPurchaseLimits" data-loc="cheats_noVendorPurchaseLimits"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="noNodeEntryFees" data-enabling-permission="toggleCheat.noNodeEntryFees" />
+                                    <label class="form-check-label" for="noNodeEntryFees" data-loc="cheats_noNodeEntryFees"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="noDeathMarks" data-enabling-permission="toggleCheat.noDeathMarks" />
+                                    <label class="form-check-label" for="noDeathMarks" data-loc="cheats_noDeathMarks"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="noNemesis" data-enabling-permission="toggleCheat.noNemesis" />
+                                    <label class="form-check-label" for="noNemesis" data-loc="cheats_noNemesis"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="noKimCooldowns" data-enabling-permission="toggleCheat.noKimCooldowns" />
+                                    <label class="form-check-label" for="noKimCooldowns" data-loc="cheats_noKimCooldowns"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="noBlessingCooldown" data-enabling-permission="toggleCheat.noBlessingCooldown" />
+                                    <label class="form-check-label" for="noBlessingCooldown" data-loc="cheats_noBlessingCooldown"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="noResourceExtractorDronesDamage" data-enabling-permission="toggleCheat.noResourceExtractorDronesDamage" />
+                                    <label class="form-check-label" for="noResourceExtractorDronesDamage" data-loc="cheats_noResourceExtractorDronesDamage"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="instantResourceExtractorDrones" data-enabling-permission="toggleCheat.instantResourceExtractorDrones" />
+                                    <label class="form-check-label" for="instantResourceExtractorDrones" data-loc="cheats_instantResourceExtractorDrones"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="claimingBlueprintRefundsIngredients" data-enabling-permission="toggleCheat.claimingBlueprintRefundsIngredients" />
+                                    <label class="form-check-label" for="claimingBlueprintRefundsIngredients" data-loc="cheats_claimingBlueprintRefundsIngredients"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="missionsCanGiveAllRelics" data-enabling-permission="toggleCheat.missionsCanGiveAllRelics" />
+                                    <label class="form-check-label" for="missionsCanGiveAllRelics" data-loc="cheats_missionsCanGiveAllRelics"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="exceptionalRelicsAlwaysGiveBronzeReward" data-enabling-permission="toggleCheat.exceptionalRelicsAlwaysGiveBronzeReward" />
+                                    <label class="form-check-label" for="exceptionalRelicsAlwaysGiveBronzeReward" data-loc="cheats_exceptionalRelicsAlwaysGiveBronzeReward"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="flawlessRelicsAlwaysGiveSilverReward" data-enabling-permission="toggleCheat.flawlessRelicsAlwaysGiveSilverReward" />
+                                    <label class="form-check-label" for="flawlessRelicsAlwaysGiveSilverReward" data-loc="cheats_flawlessRelicsAlwaysGiveSilverReward"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="radiantRelicsAlwaysGiveGoldReward" data-enabling-permission="toggleCheat.radiantRelicsAlwaysGiveGoldReward" />
+                                    <label class="form-check-label" for="radiantRelicsAlwaysGiveGoldReward" data-loc="cheats_radiantRelicsAlwaysGiveGoldReward"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="disableDailyTribute" data-enabling-permission="toggleCheat.disableDailyTribute" />
+                                    <label class="form-check-label" for="disableDailyTribute" data-loc="cheats_disableDailyTribute"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="incrementDailyTributeBy50" data-enabling-permission="toggleCheat.incrementDailyTributeBy50" />
+                                    <label class="form-check-label" for="incrementDailyTributeBy50" data-loc="cheats_incrementDailyTributeBy50"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="finishInvasionsInOneMission" data-enabling-permission="toggleCheat.finishInvasionsInOneMission" />
+                                    <label class="form-check-label" for="finishInvasionsInOneMission" data-loc="cheats_finishInvasionsInOneMission"></label>
+                                </div>
+                                <form class="form-group mt-2" onsubmit="doChangeSupportedSyndicate(); return false;">
+                                    <label class="form-label" for="changeSyndicate" data-loc="cheats_changeSupportedSyndicate"></label>
+                                    <div class="input-group">
+                                        <select class="form-control" id="changeSyndicate"></select>
+                                        <button class="btn btn-secondary" type="submit" data-loc="cheats_changeButton"></button>
+                                    </div>
+                                </form>
+                                <form class="form-group mt-2">
+                                    <label class="form-label" for="spoofMasteryRank" data-loc="cheats_spoofMasteryRank"></label>
+                                    <div class="input-group">
+                                        <input class="form-control" id="spoofMasteryRank" type="number" min="-1" max="65535" data-default="-1" />
+                                        <button class="btn btn-secondary" type="button" data-loc="cheats_save"></button>
+                                    </div>
+                                </form>
+                                <form class="form-group mt-2">
+                                    <label class="form-label" for="nemesisHenchmenKillsMultiplierGrineer" data-loc="cheats_nemesisHenchmenKillsMultiplierGrineer"></label>
+                                    <div class="input-group">
+                                        <input class="form-control" id="nemesisHenchmenKillsMultiplierGrineer" type="number" min="0" max="65535" data-default="1" />
+                                        <button class="btn btn-secondary" type="button" data-loc="cheats_save"></button>
+                                    </div>
+                                </form>
+                                <form class="form-group mt-2">
+                                    <label class="form-label" for="nemesisHenchmenKillsMultiplierCorpus" data-loc="cheats_nemesisHenchmenKillsMultiplierCorpus"></label>
+                                    <div class="input-group">
+                                        <input class="form-control" id="nemesisHenchmenKillsMultiplierCorpus" type="number" min="0" max="65535" data-default="1" />
+                                        <button class="btn btn-secondary" type="button" data-loc="cheats_save"></button>
+                                    </div>
+                                </form>
+                                <form class="form-group mt-2">
+                                    <label class="form-label" for="nemesisAntivirusGainMultiplier" data-loc="cheats_nemesisAntivirusGainMultiplier"></label>
+                                    <div class="input-group">
+                                        <input class="form-control" id="nemesisAntivirusGainMultiplier" type="number" min="0" max="65535" data-default="1" />
+                                        <button class="btn btn-secondary" type="button" data-loc="cheats_save"></button>
+                                    </div>
+                                </form>
+                                <form class="form-group mt-2">
+                                    <label class="form-label" for="nemesisHintProgressMultiplierGrineer" data-loc="cheats_nemesisHintProgressMultiplierGrineer"></label>
+                                    <div class="input-group">
+                                        <input class="form-control" id="nemesisHintProgressMultiplierGrineer" type="number" min="0" max="65535" data-default="1" />
+                                        <button class="btn btn-secondary" type="button" data-loc="cheats_save"></button>
+                                    </div>
+                                </form>
+                                <form class="form-group mt-2">
+                                    <label class="form-label" for="nemesisHintProgressMultiplierCorpus" data-loc="cheats_nemesisHintProgressMultiplierCorpus"></label>
+                                    <div class="input-group">
+                                        <input class="form-control" id="nemesisHintProgressMultiplierCorpus" type="number" min="0" max="65535" data-default="1" />
+                                        <button class="btn btn-secondary" type="button" data-loc="cheats_save"></button>
+                                    </div>
+                                </form>
+                                <form class="form-group mt-2">
+                                    <label class="form-label" for="nemesisExtraWeapon" data-loc="cheats_nemesisExtraWeapon"></label>
+                                    <div class="input-group">
+                                        <input class="form-control" id="nemesisExtraWeapon" type="number" min="0" max="65535" data-default="0" />
+                                        <button class="btn btn-secondary" type="button" data-loc="cheats_save"></button>
+                                    </div>
+                                </form>
+                                <form class="form-group mt-2">
+                                    <label class="form-label" for="dailyTributeRewardMultiplier" data-loc="cheats_dailyTributeRewardMultiplier"></label>
+                                    <div class="input-group">
+                                        <input class="form-control" id="dailyTributeRewardMultiplier" type="number" min="1" max="1000000" data-default="1" />
+                                        <button class="btn btn-secondary" type="button" data-loc="cheats_save"></button>
+                                    </div>
+                                </form>
+                                <form class="form-group mt-2">
+                                    <label class="form-label" for="relicRewardItemCountMultiplier" data-loc="cheats_relicRewardItemCountMultiplier"></label>
+                                    <div class="input-group">
+                                        <input class="form-control" id="relicRewardItemCountMultiplier" type="number" min="1" max="1000000" data-default="1" />
+                                        <button class="btn btn-secondary" type="button" data-loc="cheats_save"></button>
+                                    </div>
+                                </form>
+                                <form class="form-group mt-2">
+                                    <label class="form-label" for="relicPlatinumBonusCommon" data-loc="cheats_relicPlatinumBonusCommon"></label>
+                                    <div class="input-group">
+                                        <input class="form-control" id="relicPlatinumBonusCommon" type="number" min="0" max="1000000" data-default="0" />
+                                        <button class="btn btn-secondary" type="button" data-loc="cheats_save"></button>
+                                    </div>
+                                </form>
+                                <form class="form-group mt-2">
+                                    <label class="form-label" for="relicPlatinumBonusUncommon" data-loc="cheats_relicPlatinumBonusUncommon"></label>
+                                    <div class="input-group">
+                                        <input class="form-control" id="relicPlatinumBonusUncommon" type="number" min="0" max="1000000" data-default="0" />
+                                        <button class="btn btn-secondary" type="button" data-loc="cheats_save"></button>
+                                    </div>
+                                </form>
+                                <form class="form-group mt-2">
+                                    <label class="form-label" for="relicPlatinumBonusRare" data-loc="cheats_relicPlatinumBonusRare"></label>
+                                    <div class="input-group">
+                                        <input class="form-control" id="relicPlatinumBonusRare" type="number" min="0" max="1000000" data-default="0" />
+                                        <button class="btn btn-secondary" type="button" data-loc="cheats_save"></button>
+                                    </div>
+                                </form>
+                                <form class="form-group mt-2">
+                                    <label class="form-label" for="teralystCapturePlatinumBonus" data-loc="cheats_teralystCapturePlatinumBonus"></label>
+                                    <div class="input-group">
+                                        <input class="form-control" id="teralystCapturePlatinumBonus" type="number" min="0" max="1000000" data-default="0" />
+                                        <button class="btn btn-secondary" type="button" data-loc="cheats_save"></button>
+                                    </div>
+                                </form>
+                                <form class="form-group mt-2">
+                                    <label class="form-label" for="gantulystCapturePlatinumBonus" data-loc="cheats_gantulystCapturePlatinumBonus"></label>
+                                    <div class="input-group">
+                                        <input class="form-control" id="gantulystCapturePlatinumBonus" type="number" min="0" max="1000000" data-default="0" />
+                                        <button class="btn btn-secondary" type="button" data-loc="cheats_save"></button>
+                                    </div>
+                                </form>
+                                <form class="form-group mt-2">
+                                    <label class="form-label" for="hydrolystCapturePlatinumBonus" data-loc="cheats_hydrolystCapturePlatinumBonus"></label>
+                                    <div class="input-group">
+                                        <input class="form-control" id="hydrolystCapturePlatinumBonus" type="number" min="0" max="1000000" data-default="0" />
+                                        <button class="btn btn-secondary" type="button" data-loc="cheats_save"></button>
+                                    </div>
+                                </form>
+                                <form class="form-group mt-2">
+                                    <label class="form-label" for="nightwaveStandingMultiplier" data-loc="cheats_nightwaveStandingMultiplier"></label>
+                                    <div class="input-group">
+                                        <input class="form-control" id="nightwaveStandingMultiplier" type="number" min="1" max="1000000" data-default="1" />
+                                        <button class="btn btn-secondary" type="button" data-loc="cheats_save"></button>
+                                    </div>
+                                </form>
+                                <div class="mt-2 mb-2 d-flex flex-wrap gap-2">
+                                    <button class="btn btn-primary" onclick="debounce(doUnlockAllShipFeatures);" data-loc="cheats_unlockAllShipFeatures"></button>
+                                    <button class="btn btn-primary" onclick="debounce(unlockAllNormalMissions);" data-loc="cheats_unlockAllNormalMissions"></button>
+                                    <button class="btn btn-primary" onclick="debounce(unlockAllMissions);" data-loc="cheats_unlockAllMissions"></button>
+                                    <button class="btn btn-primary" onclick="debounce(markAllAsRead);" data-loc="cheats_markAllAsRead"></button>
+                                    <button class="btn btn-primary" onclick="debounce(doUnlockAllScans);" data-loc="cheats_unlockAllScans"></button>
+                                    <button class="btn btn-primary" onclick="debounce(doUnlockAllCapturaScenes);" data-loc="cheats_unlockAllCapturaScenes"></button>
+                                    <button class="btn btn-primary" onclick="doUnlockAllFocusSchools();" data-loc="cheats_unlockAllFocusSchools"></button>
+                                    <button class="btn btn-primary" onclick="doHelminthUnlockAll();" data-loc="cheats_helminthUnlockAll"></button>
+                                    <button class="btn btn-primary" onclick="debounce(addMissingHelminthRecipes);" data-loc="cheats_addMissingSubsumedAbilities"></button>
+                                    <button class="btn btn-primary" onclick="doIntrinsicsUnlockAll();" data-loc="cheats_intrinsicsUnlockAll"></button>
+                                    <button class="btn btn-primary" onclick="debounce(doMaxPlexus);" data-loc="cheats_maxPlexus"></button>
+                                    <button class="btn btn-primary" onclick="debounce(unlockAllJobChainBounties);" data-loc="cheats_unlockAllJobChainBounties"></button>
+                                    <button class="btn btn-primary" onclick="debounce(unlockAllSimarisResearchEntries);" data-loc="cheats_unlockAllSimarisResearchEntries"></button>
+                                    <button class="btn btn-primary" onclick="debounce(addMissingDangerRooms);" data-loc="cheats_addMissingDangerRooms"></button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card mb-3">
+                            <h5 class="card-header" data-loc="cheats_server"></h5>
+                            <div class="card-body">
+                                <div class="d-none admin-hide">
+                                    <p class="card-text" data-loc="cheats_administratorRequirement"></p>
+                                </div>
+                                <div class="d-none admin-show config-form">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="skipTutorial" />
+                                        <label class="form-check-label" for="skipTutorial" data-loc="cheats_skipTutorial"></label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="skipClanKeyCrafting" />
+                                        <label class="form-check-label" for="skipClanKeyCrafting" data-loc="cheats_skipClanKeyCrafting"></label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="fullyStockedVendors" />
+                                        <label class="form-check-label" for="fullyStockedVendors" data-loc="cheats_fullyStockedVendors"></label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="noHubDiscrimination" />
+                                        <label class="form-check-label" for="noHubDiscrimination" data-loc="cheats_noHubDiscrimination"></label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card d-none admin-show config-form">
+                            <h5 class="card-header" data-loc="worldState"></h5>
+                            <div class="card-body">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="worldState.tennoLiveRelay" />
+                                    <label class="form-check-label" for="worldState.tennoLiveRelay" data-loc="worldState_tennoLiveRelay"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="worldState.baroTennoConRelay" />
+                                    <label class="form-check-label" for="worldState.baroTennoConRelay" data-loc="worldState_baroTennoConRelay"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="worldState.baroAlwaysAvailable" />
+                                    <label class="form-check-label" for="worldState.baroAlwaysAvailable" data-loc="cheats_baroAlwaysAvailable"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="worldState.baroFullyStocked" />
+                                    <label class="form-check-label" for="worldState.baroFullyStocked" data-loc="cheats_baroFullyStocked"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="worldState.varziaFullyStocked" />
+                                    <label class="form-check-label" for="worldState.varziaFullyStocked" data-loc="worldState_varziaFullyStocked"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="worldState.vanguardVaultRelics" />
+                                    <label class="form-check-label" for="worldState.vanguardVaultRelics" data-loc="worldState_vanguardVaultRelics"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="unfaithfulBugFixes.useAnniversaryTagForOldGoals" />
+                                    <label class="form-check-label" for="unfaithfulBugFixes.useAnniversaryTagForOldGoals" data-loc="worldState_useAnniversaryTagForOldGoals"></label>
+                                    <abbr data-loc-inc="worldState_anniversary"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640"><path d="M320 576C461.4 576 576 461.4 576 320C576 178.6 461.4 64 320 64C178.6 64 64 178.6 64 320C64 461.4 178.6 576 320 576zM320 200C333.3 200 344 210.7 344 224L344 336C344 349.3 333.3 360 320 360C306.7 360 296 349.3 296 336L296 224C296 210.7 306.7 200 320 200zM293.3 416C292.7 406.1 297.6 396.7 306.1 391.5C314.6 386.4 325.3 386.4 333.8 391.5C342.3 396.7 347.2 406.1 346.6 416C347.2 425.9 342.3 435.3 333.8 440.5C325.3 445.6 314.6 445.6 306.1 440.5C297.6 435.3 292.7 425.9 293.3 416z"/></svg></abbr>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="worldState.bloodOfPerita" />
+                                    <label class="form-check-label" for="worldState.bloodOfPerita" data-loc-itemMap="/Lotus/Language/TauPrequel/TauPrequelFinal/TauPrequelEventAlertTitle"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="worldState.scarletSpear" />
+                                    <label class="form-check-label" for="worldState.scarletSpear" data-loc-itemMap="/Lotus/Language/G1Quests/FlotillaOperation"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="worldState.orphixVenom" />
+                                    <label class="form-check-label" for="worldState.orphixVenom" data-loc-itemMap="/Lotus/Language/Events/MechSurvivalName"></label>
+                                    <abbr data-loc-inc="/Lotus/Language/Events/GalleonRobberyEventMissionTitle|/Lotus/Language/Alerts/WolfAlert|/Lotus/Language/Alerts/TacAlertProxyRebellion|worldState_anniversary"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640"><path d="M320 576C461.4 576 576 461.4 576 320C576 178.6 461.4 64 320 64C178.6 64 64 178.6 64 320C64 461.4 178.6 576 320 576zM320 200C333.3 200 344 210.7 344 224L344 336C344 349.3 333.3 360 320 360C306.7 360 296 349.3 296 336L296 224C296 210.7 306.7 200 320 200zM293.3 416C292.7 406.1 297.6 396.7 306.1 391.5C314.6 386.4 325.3 386.4 333.8 391.5C342.3 396.7 347.2 406.1 346.6 416C347.2 425.9 342.3 435.3 333.8 440.5C325.3 445.6 314.6 445.6 306.1 440.5C297.6 435.3 292.7 425.9 293.3 416z"/></svg></abbr>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="worldState.longShadow" />
+                                    <label class="form-check-label" for="worldState.longShadow" data-loc-itemMap="/Lotus/Language/G1Quests/ProjectNightwatchTacAlertTitle"></label>
+                                    <abbr data-loc-inc="worldState_anniversary"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640"><path d="M320 576C461.4 576 576 461.4 576 320C576 178.6 461.4 64 320 64C178.6 64 64 178.6 64 320C64 461.4 178.6 576 320 576zM320 200C333.3 200 344 210.7 344 224L344 336C344 349.3 333.3 360 320 360C306.7 360 296 349.3 296 336L296 224C296 210.7 306.7 200 320 200zM293.3 416C292.7 406.1 297.6 396.7 306.1 391.5C314.6 386.4 325.3 386.4 333.8 391.5C342.3 396.7 347.2 406.1 346.6 416C347.2 425.9 342.3 435.3 333.8 440.5C325.3 445.6 314.6 445.6 306.1 440.5C297.6 435.3 292.7 425.9 293.3 416z"/></svg></abbr>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="worldState.hallowedFlame" />
+                                    <label class="form-check-label" for="worldState.hallowedFlame" data-loc-itemMap-tc="/Lotus/Language/Events/TacAlertHalloweenLantern"></label>
+                                    <abbr data-loc-inc="/Lotus/Language/G1Quests/TacAlertHalloweenTitle|/Lotus/Language/Alerts/TacAlertWaterFight|worldState_anniversary"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640"><path d="M320 576C461.4 576 576 461.4 576 320C576 178.6 461.4 64 320 64C178.6 64 64 178.6 64 320C64 461.4 178.6 576 320 576zM320 200C333.3 200 344 210.7 344 224L344 336C344 349.3 333.3 360 320 360C306.7 360 296 349.3 296 336L296 224C296 210.7 306.7 200 320 200zM293.3 416C292.7 406.1 297.6 396.7 306.1 391.5C314.6 386.4 325.3 386.4 333.8 391.5C342.3 396.7 347.2 406.1 346.6 416C347.2 425.9 342.3 435.3 333.8 440.5C325.3 445.6 314.6 445.6 306.1 440.5C297.6 435.3 292.7 425.9 293.3 416z"/></svg></abbr>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="worldState.qtccAlerts" />
+                                    <label class="form-check-label" for="worldState.qtccAlerts" data-loc="worldState_qtccAlerts"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="worldState.destiny2TributeAlert" />
+                                    <label class="form-check-label" for="worldState.destiny2TributeAlert" data-loc="worldState_destiny2TributeAlert"></label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="worldState.snowdayShowdown" />
+                                    <label class="form-check-label" for="worldState.snowdayShowdown" data-loc-itemMap="/Lotus/Language/G1Quests/TacAlertSnowballFightTitle"></label>
+                                </div>
+                                <div class="mt-2">
+                                    <div class="d-flex flex-wrap gap-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="worldState.breedingGrounds" />
+                                            <label class="form-check-label" for="worldState.breedingGrounds" data-loc-itemMap="/Lotus/Language/G1Quests/InfestedCorpusHiveEventName"></label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="unfaithfulBugFixes.giveBreedingGroundsRewardsAtSum" />
+                                            <label class="form-check-label" for="unfaithfulBugFixes.giveBreedingGroundsRewardsAtSum" data-loc="worldState_giveBreedingGroundsRewardsAtSum"></label>
+                                            <abbr data-loc-title="worldState_giveBreedingGroundsRewardsAtSumDesc"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640"><path d="M320 576C461.4 576 576 461.4 576 320C576 178.6 461.4 64 320 64C178.6 64 64 178.6 64 320C64 461.4 178.6 576 320 576zM320 200C333.3 200 344 210.7 344 224L344 336C344 349.3 333.3 360 320 360C306.7 360 296 349.3 296 336L296 224C296 210.7 306.7 200 320 200zM293.3 416C292.7 406.1 297.6 396.7 306.1 391.5C314.6 386.4 325.3 386.4 333.8 391.5C342.3 396.7 347.2 406.1 346.6 416C347.2 425.9 342.3 435.3 333.8 440.5C325.3 445.6 314.6 445.6 306.1 440.5C297.6 435.3 292.7 425.9 293.3 416z"/></svg></abbr>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mt-2">
+                                    <label class="form-label" data-loc="worldState_voidCorruption" data-loc-replace="2025"></label>
+                                    <div class="d-flex flex-wrap gap-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="worldState.voidCorruption2025Week1" />
+                                            <label class="form-check-label" for="worldState.voidCorruption2025Week1" data-loc="worldState_week" data-loc-replace="1"></label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="worldState.voidCorruption2025Week2" />
+                                            <label class="form-check-label" for="worldState.voidCorruption2025Week2" data-loc="worldState_week" data-loc-replace="2"></label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="worldState.voidCorruption2025Week3" />
+                                            <label class="form-check-label" for="worldState.voidCorruption2025Week3" data-loc="worldState_week" data-loc-replace="3"></label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="worldState.voidCorruption2025Week4" />
+                                            <label class="form-check-label" for="worldState.voidCorruption2025Week4" data-loc="worldState_week" data-loc-replace="4"></label>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mt-2">
+                                    <label class="form-label" data-loc="worldState_dagathAlerts" data-loc-replace="2026"></label>
+                                    <div class="d-flex flex-wrap gap-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="worldState.dagathAlerts2026Week1" />
+                                            <label class="form-check-label" for="worldState.dagathAlerts2026Week1" data-loc="worldState_week" data-loc-replace="1"></label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="worldState.dagathAlerts2026Week2" />
+                                            <label class="form-check-label" for="worldState.dagathAlerts2026Week2" data-loc="worldState_week" data-loc-replace="2"></label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="worldState.dagathAlerts2026Week3" />
+                                            <label class="form-check-label" for="worldState.dagathAlerts2026Week3" data-loc="worldState_week" data-loc-replace="3"></label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="worldState.dagathAlerts2026Week4" />
+                                            <label class="form-check-label" for="worldState.dagathAlerts2026Week4" data-loc="worldState_week" data-loc-replace="4"></label>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="mt-2">
+                                    <label class="form-label" data-loc="worldState_starDaysAlerts" data-loc-replace="2026"></label>
+                                    <div class="d-flex flex-wrap gap-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="worldState.starDaysAlerts2026Week1" />
+                                            <label class="form-check-label" for="worldState.starDaysAlerts2026Week1" data-loc="worldState_week" data-loc-replace="1"></label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="worldState.starDaysAlerts2026Week2" />
+                                            <label class="form-check-label" for="worldState.starDaysAlerts2026Week2" data-loc="worldState_week" data-loc-replace="2"></label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="worldState.starDaysAlerts2026Week3" />
+                                            <label class="form-check-label" for="worldState.starDaysAlerts2026Week3" data-loc="worldState_week" data-loc-replace="3"></label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="worldState.starDaysAlerts2026Week4" />
+                                            <label class="form-check-label" for="worldState.starDaysAlerts2026Week4" data-loc="worldState_week" data-loc-replace="4"></label>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="form-group mt-2">
+                                    <form class="form-group" onsubmit="doSaveConfigInt('worldState.creditBoostMultiplier'); return false;">
+                                        <label class="form-label" for="worldState.creditBoostMultiplier" data-loc="worldState_creditBoostMultiplier"></label>
+                                        <div class="input-group">
+                                            <input id="worldState.creditBoostMultiplier" class="form-control" type="number" min="0" max="1000000" data-default="0" />
+                                            <button class="btn btn-secondary" type="submit" data-loc="cheats_save"></button>
+                                        </div>
+                                    </form>
+                                </div>
+                                <div class="form-group mt-2">
+                                    <form class="form-group" onsubmit="doSaveConfigInt('worldState.affinityBoostMultiplier'); return false;">
+                                        <label class="form-label" for="worldState.affinityBoostMultiplier" data-loc="worldState_affinityBoostMultiplier"></label>
+                                        <div class="input-group">
+                                            <input id="worldState.affinityBoostMultiplier" class="form-control" type="number" min="0" max="1000000" data-default="0" />
+                                            <button class="btn btn-secondary" type="submit" data-loc="cheats_save"></button>
+                                        </div>
+                                    </form>
+                                </div>
+                                <div class="form-group mt-2">
+                                    <form class="form-group" onsubmit="doSaveConfigInt('worldState.resourceBoostMultiplier'); return false;">
+                                        <label class="form-label" for="worldState.resourceBoostMultiplier" data-loc="worldState_resourceBoostMultiplier"></label>
+                                        <abbr data-loc-title="worldState_resourceBoostMultiplierDesc"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640"><path d="M320 576C461.4 576 576 461.4 576 320C576 178.6 461.4 64 320 64C178.6 64 64 178.6 64 320C64 461.4 178.6 576 320 576zM320 200C333.3 200 344 210.7 344 224L344 336C344 349.3 333.3 360 320 360C306.7 360 296 349.3 296 336L296 224C296 210.7 306.7 200 320 200zM293.3 416C292.7 406.1 297.6 396.7 306.1 391.5C314.6 386.4 325.3 386.4 333.8 391.5C342.3 396.7 347.2 406.1 346.6 416C347.2 425.9 342.3 435.3 333.8 440.5C325.3 445.6 314.6 445.6 306.1 440.5C297.6 435.3 292.7 425.9 293.3 416z"/></svg></abbr>
+                                        <div class="input-group">
+                                            <input id="worldState.resourceBoostMultiplier" class="form-control" type="number" min="0" max="1000000" data-default="0" />
+                                            <button class="btn btn-secondary" type="submit" data-loc="cheats_save"></button>
+                                        </div>
+                                    </form>
+                                </div>
+                                <div class="form-group mt-2">
+                                    <label class="form-label" for="worldState.baroRelayOverride" data-loc="worldState_baroRelayOverride"></label>
+                                    <select class="form-control" id="worldState.baroRelayOverride" data-default="0">
+                                        <option value="0" data-loc="disabled"></option>
+                                        <option value="1" data-loc-itemMap="EarthHUB" data-loc-replace="1"></option>
+                                        <option value="2" data-loc-itemMap="MercuryHUB" data-loc-replace="2"></option>
+                                        <option value="3" data-loc-itemMap="SaturnHUB" data-loc-replace="3"></option>
+                                        <option value="4" data-loc-itemMap="PlutoHUB" data-loc-replace="4"></option>
+                                    </select>
+                                </div>
+                                <div class="form-group mt-2">
+                                    <label class="form-label" for="worldState.evilBaroStage" data-loc="worldState_evilBaroStage"></label>
+                                    <select class="form-control" id="worldState.evilBaroStage" data-default="0">
+                                        <option value="0" data-loc="disabled"></option>
+                                        <option value="1" data-loc="worldState_week" data-loc-replace="1"></option>
+                                        <option value="2" data-loc="worldState_week" data-loc-replace="2"></option>
+                                        <option value="3" data-loc="worldState_week" data-loc-replace="3"></option>
+                                        <option value="4" data-loc="worldState_week" data-loc-replace="4"></option>
+                                    </select>
+                                </div>
+                                <div class="form-group mt-2">
+                                    <label class="form-label" for="worldState.wolfHunt" data-loc-itemMap="/Lotus/Language/Alerts/WolfAlert"></label>
+                                    <abbr data-loc-inc="/Lotus/Language/Events/GalleonRobberyEventMissionTitle|/Lotus/Language/Events/MechSurvivalName|worldState_anniversary"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640"><path d="M320 576C461.4 576 576 461.4 576 320C576 178.6 461.4 64 320 64C178.6 64 64 178.6 64 320C64 461.4 178.6 576 320 576zM320 200C333.3 200 344 210.7 344 224L344 336C344 349.3 333.3 360 320 360C306.7 360 296 349.3 296 336L296 224C296 210.7 306.7 200 320 200zM293.3 416C292.7 406.1 297.6 396.7 306.1 391.5C314.6 386.4 325.3 386.4 333.8 391.5C342.3 396.7 347.2 406.1 346.6 416C347.2 425.9 342.3 435.3 333.8 440.5C325.3 445.6 314.6 445.6 306.1 440.5C297.6 435.3 292.7 425.9 293.3 416z"/></svg></abbr>
+                                    <select class="form-control" id="worldState.wolfHunt" data-default="null">
+                                        <option value="null" data-loc="disabled"></option>
+                                        <option value="1" data-loc="worldState_from_year" data-loc-replace="2025"></option>
+                                        <option value="0" data-loc="worldState_from_year" data-loc-replace="2019"></option>
+                                    </select>
+                                </div>
+                                <div class="form-group mt-2 d-flex gap-2">
+                                    <div class="flex-fill">
+                                        <label class="form-label" for="worldState.hallowedNightmares" data-loc-itemMap="/Lotus/Language/G1Quests/TacAlertHalloweenTitle"></label>
+                                        <abbr data-loc-inc="/Lotus/Language/Events/TacAlertHalloweenLantern|/Lotus/Language/Alerts/TacAlertWaterFight|worldState_anniversary"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640"><path d="M320 576C461.4 576 576 461.4 576 320C576 178.6 461.4 64 320 64C178.6 64 64 178.6 64 320C64 461.4 178.6 576 320 576zM320 200C333.3 200 344 210.7 344 224L344 336C344 349.3 333.3 360 320 360C306.7 360 296 349.3 296 336L296 224C296 210.7 306.7 200 320 200zM293.3 416C292.7 406.1 297.6 396.7 306.1 391.5C314.6 386.4 325.3 386.4 333.8 391.5C342.3 396.7 347.2 406.1 346.6 416C347.2 425.9 342.3 435.3 333.8 440.5C325.3 445.6 314.6 445.6 306.1 440.5C297.6 435.3 292.7 425.9 293.3 416z"/></svg></abbr>
+                                        <select class="form-control" id="worldState.hallowedNightmares" data-default="false">
+                                            <option value="true" data-loc="enabled"></option>
+                                            <option value="false" data-loc="disabled"></option>
+                                        </select>
+                                    </div>
+                                    <div class="flex-fill">
+                                        <label class="form-label" for="worldState.hallowedNightmaresRewardsOverride" data-loc="worldState_hallowedNightmaresRewards"></label>
+                                        <select class="form-control" id="worldState.hallowedNightmaresRewardsOverride" data-default="0">
+                                                <option value="0" data-loc="worldState_from_year" data-loc-replace="2018"></option>
+                                                <option value="1" data-loc="worldState_from_year" data-loc-replace="2016"></option>
+                                                <option value="2" data-loc="worldState_from_year" data-loc-replace="2015"></option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="form-group mt-2">
+                                    <label class="form-label" for="worldState.naberusNightsOverride" data-loc-itemMap="/Lotus/Language/Events/HalloweenNaberusName"></label>
+                                    <select class="form-control" id="worldState.naberusNightsOverride" data-default="null">
+                                        <option value="null" data-loc="normal"></option>
+                                        <option value="true" data-loc="enabled"></option>
+                                        <option value="false" data-loc="disabled"></option>
+                                    </select>
+                                </div>
+                                <div class="form-group mt-2 d-flex gap-2">
+                                    <div class="flex-fill">
+                                        <label class="form-label" for="worldState.proxyRebellion" data-loc-itemMap="/Lotus/Language/Alerts/TacAlertProxyRebellion"></label>
+                                        <abbr data-loc-inc="worldState_anniversary|/Lotus/Language/Events/MechSurvivalName"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640"><path d="M320 576C461.4 576 576 461.4 576 320C576 178.6 461.4 64 320 64C178.6 64 64 178.6 64 320C64 461.4 178.6 576 320 576zM320 200C333.3 200 344 210.7 344 224L344 336C344 349.3 333.3 360 320 360C306.7 360 296 349.3 296 336L296 224C296 210.7 306.7 200 320 200zM293.3 416C292.7 406.1 297.6 396.7 306.1 391.5C314.6 386.4 325.3 386.4 333.8 391.5C342.3 396.7 347.2 406.1 346.6 416C347.2 425.9 342.3 435.3 333.8 440.5C325.3 445.6 314.6 445.6 306.1 440.5C297.6 435.3 292.7 425.9 293.3 416z"/></svg></abbr>
+                                        <select class="form-control" id="worldState.proxyRebellion" data-default="false">
+                                            <option value="true" data-loc="enabled"></option>
+                                            <option value="false" data-loc="disabled"></option>
+                                        </select>
+                                    </div>
+                                    <div class="flex-fill">
+                                        <label class="form-label" for="worldState.proxyRebellionRewardsOverride" data-loc="worldState_proxyRebellionRewards"></label>
+                                        <select class="form-control" id="worldState.proxyRebellionRewardsOverride" data-default="0">
+                                            <option value="0" data-loc="worldState_from_year" data-loc-replace="2019"></option>
+                                            <option value="1" data-loc="worldState_from_year" data-loc-replace="2018"></option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="form-group mt-2">
+                                    <label class="form-label" for="worldState.galleonOfGhouls" data-loc-itemMap="/Lotus/Language/Events/GalleonRobberyEventMissionTitle"></label>
+                                    <abbr data-loc-inc="/Lotus/Language/Alerts/WolfAlert|worldState_anniversary|/Lotus/Language/Events/MechSurvivalName"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640"><path d="M320 576C461.4 576 576 461.4 576 320C576 178.6 461.4 64 320 64C178.6 64 64 178.6 64 320C64 461.4 178.6 576 320 576zM320 200C333.3 200 344 210.7 344 224L344 336C344 349.3 333.3 360 320 360C306.7 360 296 349.3 296 336L296 224C296 210.7 306.7 200 320 200zM293.3 416C292.7 406.1 297.6 396.7 306.1 391.5C314.6 386.4 325.3 386.4 333.8 391.5C342.3 396.7 347.2 406.1 346.6 416C347.2 425.9 342.3 435.3 333.8 440.5C325.3 445.6 314.6 445.6 306.1 440.5C297.6 435.3 292.7 425.9 293.3 416z"/></svg></abbr>
+                                    <select class="form-control" id="worldState.galleonOfGhouls" data-default="0">
+                                        <option value="0" data-loc="disabled"></option>
+                                        <option value="1" data-loc="worldState_we1"></option>
+                                        <option value="2" data-loc="worldState_we2"></option>
+                                        <option value="3" data-loc="worldState_we3"></option>
+                                    </select>
+                                </div>
+                                <div class="form-group mt-2">
+                                    <label class="form-label" for="worldState.anniversary" data-loc="worldState_anniversary"></label>
+                                    <abbr data-loc-inc="worldState_useAnniversaryTagForOldGoals|/Lotus/Language/Alerts/WolfAlert|/Lotus/Language/Events/GalleonRobberyEventMissionTitle|/Lotus/Language/G1Quests/TacAlertHalloweenTitle|/Lotus/Language/Events/TacAlertHalloweenLantern|/Lotus/Language/Alerts/TacAlertWaterFight|/Lotus/Language/Alerts/TacAlertProxyRebellion|/Lotus/Language/G1Quests/ProjectNightwatchTacAlertTitle|/Lotus/Language/Events/MechSurvivalName"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640"><path d="M320 576C461.4 576 576 461.4 576 320C576 178.6 461.4 64 320 64C178.6 64 64 178.6 64 320C64 461.4 178.6 576 320 576zM320 200C333.3 200 344 210.7 344 224L344 336C344 349.3 333.3 360 320 360C306.7 360 296 349.3 296 336L296 224C296 210.7 306.7 200 320 200zM293.3 416C292.7 406.1 297.6 396.7 306.1 391.5C314.6 386.4 325.3 386.4 333.8 391.5C342.3 396.7 347.2 406.1 346.6 416C347.2 425.9 342.3 435.3 333.8 440.5C325.3 445.6 314.6 445.6 306.1 440.5C297.6 435.3 292.7 425.9 293.3 416z"/></svg></abbr>
+                                    <select class="form-control" id="worldState.anniversary" data-default="null">
+                                        <option value="null" data-loc="disabled"></option>
+                                        <option value="0" data-loc="worldState_week" data-loc-replace="1"></option>
+                                        <option value="1" data-loc="worldState_week" data-loc-replace="2"></option>
+                                        <option value="2" data-loc="worldState_week" data-loc-replace="3"></option>
+                                        <option value="3" data-loc="worldState_week" data-loc-replace="4"></option>
+                                        <option value="4" data-loc="worldState_week" data-loc-replace="5"></option>
+                                        <option value="5" data-loc="worldState_week" data-loc-replace="6"></option>
+                                        <option value="6" data-loc="worldState_week" data-loc-replace="7"></option>
+                                        <option value="7" data-loc="worldState_week" data-loc-replace="8"></option>
+                                    </select>
+                                </div>
+                                <div class="form-group mt-2">
+                                    <label class="form-label" for="worldState.ghoulEmergenceOverride" data-loc-itemMap-tc="/Lotus/Language/GameModes/RecurringGhoulAlert"></label>
+                                    <select class="form-control" id="worldState.ghoulEmergenceOverride" data-default="null">
+                                        <option value="null" data-loc="normal"></option>
+                                        <option value="true" data-loc="enabled"></option>
+                                        <option value="false" data-loc="disabled"></option>
+                                    </select>
+                                </div>
+                                <div class="form-group mt-2">
+                                    <label class="form-label" for="worldState.plagueStarOverride" data-loc-itemMap-tc="/Lotus/Language/InfestedPlainsEvent/InfestedPlainsBountyName"></label>
+                                    <select class="form-control" id="worldState.plagueStarOverride" data-default="null">
+                                        <option value="null" data-loc="normal"></option>
+                                        <option value="true" data-loc="enabled"></option>
+                                        <option value="false" data-loc="disabled"></option>
+                                    </select>
+                                </div>
+                                <div class="form-group mt-2">
+                                    <label class="form-label" for="worldState.starDaysOverride" data-loc-itemMap="/Lotus/Language/Events/ValentinesFortunaName"></label>
+                                    <select class="form-control" id="worldState.starDaysOverride" data-default="null">
+                                        <option value="null" data-loc="normal"></option>
+                                        <option value="true" data-loc="enabled"></option>
+                                        <option value="false" data-loc="disabled"></option>
+                                    </select>
+                                </div>
+                                <div class="form-group mt-2">
+                                    <label class="form-label" for="worldState.saintPatrickOverride" data-loc="worldState_saintPatrick"></label>
+                                    <select class="form-control" id="worldState.saintPatrickOverride" data-default="null">
+                                        <option value="null" data-loc="normal"></option>
+                                        <option value="true" data-loc="enabled"></option>
+                                        <option value="false" data-loc="disabled"></option>
+                                    </select>
+                                </div>
+                                <div class="form-group mt-2">
+                                    <label class="form-label" for="worldState.xmasOverride" data-loc="worldState_xmas"></label>
+                                    <select class="form-control" id="worldState.xmasOverride" data-default="null">
+                                        <option value="null" data-loc="normal"></option>
+                                        <option value="true" data-loc="enabled"></option>
+                                        <option value="false" data-loc="disabled"></option>
+                                    </select>
+                                </div>
+                                <div class="form-group mt-2">
+                                    <label class="form-label" for="worldState.prideOverride" data-loc="worldState_prideOverride"></label>
+                                    <select class="form-control" id="worldState.prideOverride" data-default="null">
+                                        <option value="null" data-loc="normal"></option>
+                                        <option value="true" data-loc="enabled"></option>
+                                        <option value="false" data-loc="disabled"></option>
+                                    </select>
+                                </div>
+                                <div class="form-group mt-2">
+                                    <label class="form-label" for="worldState.lunarNewYear" data-loc-itemMap="/Lotus/Language/Store/LunarNewYearSearchTag"></label>
+                                    <select class="form-control" id="worldState.lunarNewYear" data-default="null">
+                                        <option value="null" data-loc="disabled"></option>
+                                        <option value="all" data-loc="worldState_allAtOnce"></option>
+                                        <option value="2019" data-loc="worldState_lunarNewYearEntry" data-loc-replace="2019"></option>
+                                        <option value="2020" data-loc="worldState_lunarNewYearEntry" data-loc-replace="2020"></option>
+                                        <option value="2021" data-loc="worldState_lunarNewYearEntry" data-loc-replace="2021"></option>
+                                        <option value="2022" data-loc="worldState_lunarNewYearEntry" data-loc-replace="2022"></option>
+                                        <option value="2023" data-loc="worldState_lunarNewYearEntry" data-loc-replace="2023"></option>
+                                        <option value="2024" data-loc="worldState_lunarNewYearEntry" data-loc-replace="2024"></option>
+                                        <option value="2025" data-loc="worldState_lunarNewYearEntry" data-loc-replace="2025"></option>
+                                        <option value="2026" data-loc="worldState_lunarNewYearEntry" data-loc-replace="2026"></option>
+                                    </select>
+                                </div>
+                                <div class="form-group mt-2 d-flex gap-2">
+                                    <div class="flex-fill">
+                                        <label class="form-label" for="worldState.dogDaysOverride" data-loc-itemMap="/Lotus/Language/Alerts/TacAlertWaterFight"></label>
+                                        <abbr data-loc-inc="/Lotus/Language/Events/TacAlertHalloweenLantern|/Lotus/Language/G1Quests/TacAlertHalloweenTitle|worldState_anniversary"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640"><path d="M320 576C461.4 576 576 461.4 576 320C576 178.6 461.4 64 320 64C178.6 64 64 178.6 64 320C64 461.4 178.6 576 320 576zM320 200C333.3 200 344 210.7 344 224L344 336C344 349.3 333.3 360 320 360C306.7 360 296 349.3 296 336L296 224C296 210.7 306.7 200 320 200zM293.3 416C292.7 406.1 297.6 396.7 306.1 391.5C314.6 386.4 325.3 386.4 333.8 391.5C342.3 396.7 347.2 406.1 346.6 416C347.2 425.9 342.3 435.3 333.8 440.5C325.3 445.6 314.6 445.6 306.1 440.5C297.6 435.3 292.7 425.9 293.3 416z"/></svg></abbr>
+                                        <select class="form-control" id="worldState.dogDaysOverride" data-default="null">
+                                            <option value="null" data-loc="normal"></option>
+                                            <option value="true" data-loc="enabled"></option>
+                                            <option value="false" data-loc="disabled"></option>
+                                        </select>
+                                    </div>
+                                    <div class="flex-fill">
+                                        <label class="form-label" for="worldState.dogDaysRewardsOverride" data-loc="worldState_dogDaysRewards"></label>
+                                        <select class="form-control" id="worldState.dogDaysRewardsOverride" data-default="null">
+                                            <option value="null" data-loc="normal"></option>
+                                            <option value="4" data-loc="worldState_from_year" data-loc-replace="2026"></option>
+                                            <option value="3" data-loc="worldState_from_year" data-loc-replace="2025"></option>
+                                            <option value="2" data-loc="worldState_from_year" data-loc-replace="2024"></option>
+                                            <option value="1" data-loc="worldState_from_year" data-loc-replace="2023"></option>
+                                            <option value="0" data-loc="worldState_pre_year" data-loc-replace="2023"></option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="form-group mt-2 d-flex gap-2">
+                                    <div class="flex-fill">
+                                        <label class="form-label" for="worldState.operationAtramentum" data-loc-itemMap="/Lotus/Language/Shadowgrapher/ShadowgrapherEventName"></label>
+                                        <select class="form-control" id="worldState.operationAtramentum" data-default="false">
+                                            <option value="true" data-loc="enabled"></option>
+                                            <option value="false" data-loc="disabled"></option>
+                                        </select>
+                                    </div>
+                                    <div class="flex-fill">
+                                        <form class="form-group" onsubmit="doSaveConfigInt('worldState.operationAtramentumProgressOverride'); return false;">
+                                            <label class="form-label" for="worldState.operationAtramentumProgressOverride" data-loc="worldState_operationAtramentumProgressOverride"></label>
+                                            <div class="input-group">
+                                                <input id="worldState.operationAtramentumProgressOverride" class="form-control" type="number" min="0" max="100" data-default="0" />
+                                                <button class="btn btn-secondary" type="submit" data-loc="cheats_save"></button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                                <div class="form-group mt-2 d-flex gap-2">
+                                    <div class="flex-fill">
+                                        <label class="form-label" for="worldState.bellyOfTheBeast" data-loc-itemMap="/Lotus/Language/JadeShadows/EventAlertTitle"></label>
+                                        <select class="form-control" id="worldState.bellyOfTheBeast" data-default="false">
+                                            <option value="true" data-loc="enabled"></option>
+                                            <option value="false" data-loc="disabled"></option>
+                                        </select>
+                                    </div>
+                                    <div class="flex-fill">
+                                        <form class="form-group" onsubmit="doSaveConfigInt('worldState.bellyOfTheBeastProgressOverride'); return false;">
+                                            <label class="form-label" for="worldState.bellyOfTheBeastProgressOverride" data-loc="worldState_bellyOfTheBeastProgressOverride"></label>
+                                            <div class="input-group">
+                                                <input id="worldState.bellyOfTheBeastProgressOverride" class="form-control" type="number" min="0" max="100" data-default="0" />
+                                                <button class="btn btn-secondary" type="submit" data-loc="cheats_save"></button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                                <div class="form-group mt-2 d-flex gap-2">
+                                    <div class="flex-fill">
+                                        <label class="form-label" for="worldState.eightClaw" data-loc-itemMap="/Lotus/Language/Isleweaver/Event"></label>
+                                        <select class="form-control" id="worldState.eightClaw" data-default="false">
+                                            <option value="true" data-loc="enabled"></option>
+                                            <option value="false" data-loc="disabled"></option>
+                                        </select>
+                                    </div>
+                                    <div class="flex-fill">
+                                        <form class="form-group" onsubmit="doSaveConfigInt('worldState.eightClawProgressOverride'); return false;">
+                                            <label class="form-label" for="worldState.eightClawProgressOverride" data-loc="worldState_eightClawProgressOverride"></label>
+                                            <div class="input-group">
+                                                <input id="worldState.eightClawProgressOverride" class="form-control" type="number" min="0" max="100" data-default="0" />
+                                                <button class="btn btn-secondary" type="submit" data-loc="cheats_save"></button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                                <div class="form-group mt-2 d-flex gap-2">
+                                    <div class="flex-fill">
+                                        <label class="form-label" for="worldState.thermiaFracturesOverride" data-loc-itemMap-tc="/Lotus/Language/G1Quests/HeatFissuresEventName"></label>
+                                        <select class="form-control" id="worldState.thermiaFracturesOverride" data-default="null">
+                                            <option value="null" data-loc="normal"></option>
+                                            <option value="true" data-loc="enabled"></option>
+                                            <option value="false" data-loc="disabled"></option>
+                                        </select>
+                                    </div>
+                                    <div class="flex-fill">
+                                        <form class="form-group" onsubmit="doSaveConfigInt('worldState.thermiaFracturesProgressOverride'); return false;">
+                                            <label class="form-label" for="worldState.thermiaFracturesProgressOverride" data-loc="worldState_thermiaFracturesProgressOverride"></label>
+                                            <div class="input-group">
+                                                <input id="worldState.thermiaFracturesProgressOverride" class="form-control" type="number" min="0" max="100" data-default="0" />
+                                                <button class="btn btn-secondary" type="submit" data-loc="cheats_save"></button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                                <div class="form-group mt-2 d-flex gap-2">
+                                    <div class="flex-fill">
+                                        <label class="form-label" for="worldState.nightwaveOverride" data-loc="worldState_nightwaveOverride"></label>
+                                        <select class="form-control" id="worldState.nightwaveOverride" data-default=""></select>
+                                    </div>
+                                    <div class="flex-fill">
+                                        <form class="form-group" onsubmit="doSaveConfigInt('worldState.nightwaveEpisode'); return false;">
+                                            <label class="form-label" for="worldState.nightwaveEpisode" data-loc="worldState_nightwaveEpisode"></label>
+                                            <div class="input-group">
+                                                <input id="worldState.nightwaveEpisode" class="form-control" type="number" min="1" max="5" data-default="1" />
+                                                <button class="btn btn-secondary" type="submit" data-loc="cheats_save"></button>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
+                                <div class="form-group mt-2">
+                                    <label class="form-label" data-loc="worldState_nightwaveDebugShop"></label>
+                                    <div class="d-flex flex-wrap gap-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="worldState.nightwaveDebugShopWarframeAppearance" />
+                                            <label class="form-check-label" for="worldState.nightwaveDebugShopWarframeAppearance" data-loc="worldState_nightwaveDebugShopWarframeAppearance"></label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="worldState.nightwaveDebugShopWeaponAppearance" />
+                                            <label class="form-check-label" for="worldState.nightwaveDebugShopWeaponAppearance" data-loc="worldState_nightwaveDebugShopWeaponAppearance"></label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="worldState.nightwaveDebugShopOperatorCompanionVehicleAppearance" />
+                                            <label class="form-check-label" for="worldState.nightwaveDebugShopOperatorCompanionVehicleAppearance" data-loc="worldState_nightwaveDebugShopOperatorCompanionVehicleAppearance"></label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="worldState.nightwaveDebugShopProfileEmotesInterface" />
+                                            <label class="form-check-label" for="worldState.nightwaveDebugShopProfileEmotesInterface" data-loc="worldState_nightwaveDebugShopProfileEmotesInterface"></label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="worldState.nightwaveDebugShopDecorations" />
+                                            <label class="form-check-label" for="worldState.nightwaveDebugShopDecorations" data-loc="worldState_nightwaveDebugShopDecorations"></label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="worldState.nightwaveDebugShopArcanes" />
+                                            <label class="form-check-label" for="worldState.nightwaveDebugShopArcanes" data-loc="worldState_nightwaveDebugShopArcanes"></label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="worldState.nightwaveDebugShopMods" />
+                                            <label class="form-check-label" for="worldState.nightwaveDebugShopMods" data-loc="worldState_nightwaveDebugShopMods"></label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="worldState.nightwaveDebugShopHideRegular" />
+                                            <label class="form-check-label" for="worldState.nightwaveDebugShopHideRegular" data-loc="worldState_nightwaveDebugShopHideRegular"></label>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="form-group mt-2">
+                                    <label class="form-label" for="worldState.eidolonOverride" data-loc="worldState_eidolonOverride"></label>
+                                    <select class="form-control" id="worldState.eidolonOverride" data-default="">
+                                        <option value="" data-loc="disabled"></option>
+                                        <option value="day" data-loc="worldState_day"></option>
+                                        <option value="night" data-loc="worldState_night"></option>
+                                    </select>
+                                </div>
+                                <div class="form-group mt-2">
+                                    <label class="form-label" for="worldState.vallisOverride" data-loc="worldState_vallisOverride"></label>
+                                    <select class="form-control" id="worldState.vallisOverride" data-default="">
+                                        <option value="" data-loc="disabled"></option>
+                                        <option value="warm" data-loc-itemMap="/Lotus/Language/Game/TimeOfDay_Warm"></option>
+                                        <option value="cold" data-loc-itemMap="/Lotus/Language/Game/TimeOfDay_Cold"></option>
+                                    </select>
+                                </div>
+                                <div class="form-group mt-2">
+                                    <label class="form-label" for="worldState.duviriOverride" data-loc="worldState_duviriOverride"></label>
+                                    <select class="form-control" id="worldState.duviriOverride" data-default="">
+                                        <option value="" data-loc="disabled"></option>
+                                        <option value="joy" data-loc-itemMap="/Lotus/Language/Duviri/HappyMoodTitleShort"></option>
+                                        <option value="anger" data-loc-itemMap="/Lotus/Language/Duviri/AngryMoodTitleShort"></option>
+                                        <option value="envy" data-loc-itemMap="/Lotus/Language/Duviri/JealousMoodTitleShort"></option>
+                                        <option value="sorrow" data-loc-itemMap="/Lotus/Language/Duviri/SadMoodTitleShort"></option>
+                                        <option value="fear" data-loc-itemMap="/Lotus/Language/Duviri/ScaredMoodTitleShort"></option>
+                                    </select>
+                                </div>
+                                <div class="form-group mt-2">
+                                    <label class="form-label" for="worldState.allTheFissures" data-loc="worldState_fissures"></label>
+                                    <select class="form-control" id="worldState.allTheFissures" data-default="">
+                                        <option value="" data-loc="normal"></option>
+                                        <option value="normal" data-loc="worldState_allAtOnceNormal"></option>
+                                        <option value="hard" data-loc="worldState_allAtOnceSteelPath"></option>
+                                    </select>
+                                </div>
+                                <div class="form-group mt-2">
+                                    <label class="form-label" for="worldState.classicAlerts" data-loc="worldState_classicAlerts"></label>
+                                    <select class="form-control" id="worldState.classicAlerts" data-default="null">
+                                        <option value="null" data-loc="worldState_classicAlertsUpTo"></option>
+                                        <option value="true" data-loc="worldState_classicAlertsOnAllVersions"></option>
+                                        <option value="false" data-loc="disabled"></option>
+                                    </select>
+                                </div>
+                                <div class="form-group mt-2">
+                                    <label class="form-label" for="worldState.varziaOverride" data-loc="worldState_varziaOverride"></label>
+                                    <select class="form-control" id="worldState.varziaOverride" data-default=""></select>
+                                </div>
+                                <form class="form-group mt-2" onsubmit="doSaveConfigStringArray('worldState.circuitGameModes'); return false;">
+                                    <label class="form-label" for="worldState.circuitGameModes" data-loc="worldState_theCircuitOverride"></label>
+                                    <div class="input-group">
+                                        <input id="worldState.circuitGameModes" type="text" class="form-control tags-input" list="datalist-circuitGameModes" autocomplete="off" />
+                                        <button class="btn btn-secondary" type="submit" data-loc="cheats_save"></button>
+                                    </div>
+                                </form>
+                                <form class="form-group mt-2" onsubmit="doSaveConfigFloat('worldState.darvoStockMultiplier'); return false;">
+                                    <label class="form-label" for="worldState.darvoStockMultiplier" data-loc="worldState_darvoStockMultiplier"></label>
+                                    <div class="input-group">
+                                        <input id="worldState.darvoStockMultiplier" class="form-control" type="number" step="0.01" data-default="1" />
+                                        <button class="btn btn-secondary" type="submit" data-loc="cheats_save"></button>
+                                    </div>
+                                </form>
+                                <form class="form-group mt-2" onsubmit="doSaveConfigInt('worldState.communitySynthesisTarget'); return false;">
+                                    <label class="form-label" for="worldState.communitySynthesisTarget" data-loc="worldState_communitySynthesisTarget"></label>
+                                    <div class="input-group">
+                                        <input id="worldState.communitySynthesisTarget" class="form-control" type="number" min="0" max="10" data-default="0" />
+                                        <button class="btn btn-secondary" type="submit" data-loc="cheats_save"></button>
+                                    </div>
+                                </form>
+                                <form class="form-group mt-2" onsubmit="doSaveConfigFloat('worldState.communitySynthesisProgress'); return false;">
+                                    <label class="form-label" for="worldState.communitySynthesisProgress" data-loc="worldState_communitySynthesisProgress"></label>
+                                    <div class="input-group">
+                                        <input id="worldState.communitySynthesisProgress" class="form-control" type="number" min="0" max="100" step="0.1" data-default="0" />
+                                        <button class="btn btn-secondary" type="submit" data-loc="cheats_save"></button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div data-route="/webui/import" data-title-tag="navbar_import">
+                <p>
+                    <span data-loc="import_importNote"></span>
+                    <span data-loc="import_importNote2"></span>
+                    <span data-loc="import_importNote3"></span>
+                </p>
+                <textarea class="form-control" id="import-inventory" style="height: calc(100vh - 300px)"></textarea>
+                <button class="btn btn-primary mt-3" onclick="doImport();" data-loc="import_submit" data-enabling-permission="import"></button>
+                <button class="btn btn-success mt-3" onclick="doExport();" data-loc="import_export" data-enabling-permission="export"></button>
+                <p class="mt-3 mb-1" data-loc="import_samples"></p>
+                <ul>
+                    <li><a href="#" onclick="event.preventDefault();setImportSample('maxFocus3');" data-loc="import_samples_maxFocus" data-loc-replace="3.0"></a></li>
+                    <li><a href="#" onclick="event.preventDefault();setImportSample('maxFocus2');" data-loc="import_samples_maxFocus" data-loc-replace="2.0"></a></li>
+                    <li><a href="#" onclick="event.preventDefault();setImportSample('maxFocus1');" data-loc="import_samples_maxFocus" data-loc-replace="1.0"></a></li>
+                    <li><a href="#" onclick="event.preventDefault();setImportSample('accolades');" data-loc="import_samples_accolades"></a></li>
+                    <li><a href="#" onclick="event.preventDefault();setImportSample('maxStratos');" data-loc="import_samples_maxStratos"></a></li>
+                    <li><a href="#" onclick="event.preventDefault();setImportSample('resetSortieCompletion');" data-loc="import_samples_resetSortieCompletion"></a></li>
+                    <li><a href="#" onclick="event.preventDefault();setImportSample('clearWishlist');" data-loc="import_samples_clearWishlist"></a></li>
+                    <li><a href="#" onclick="event.preventDefault();setImportSample('clearLocPins');" data-loc="import_samples_clearLocPins"></a></li>
+                    <li><a href="#" onclick="event.preventDefault();setImportSample('eidolonLocPins');" data-loc="import_samples_eidolonLocPins"></a></li>
+                </ul>
+            </div>
+            <div data-route="/webui/users, /webui/admin" data-title-tag="admin_users">
+                <div class="d-none admin-hide">
+                    <p class="card-text" data-loc="cheats_administratorRequirement"></p>
+                </div>
+                <div class="d-none admin-show">
+                    <div class="card">
+                        <h5 class="card-header" data-loc="admin_users"></h5>
+                        <div class="card-body">
+                            <table class="table table-small table-hover mb-0">
+                                <tbody id="registered-losers"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="card mt-3">
+                        <h5 class="card-header" data-loc="admin_broadcastInbox"></h5>
+                        <div class="card-body">
+                            <div class="mb-2">
+                                <label class="form-label" for="admin-message-target" data-loc="admin_messageTarget"></label>
+                                <input class="form-control tags-input tags-input-unique" id="admin-message-target" list="datalist-usernames" />
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label" for="admin-message-sender" data-loc="admin_messageSender"></label>
+                                <input class="form-control" id="admin-message-sender" value="/Lotus/Language/Bosses/Ordis" />
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label" for="admin-message-subject" data-loc="admin_messageSubject"></label>
+                                <input class="form-control" id="admin-message-subject" />
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label" for="admin-message-body" data-loc="admin_messageBody"></label>
+                                <textarea class="form-control" id="admin-message-body" rows="4"></textarea>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label" for="admin-message-icon" data-loc="admin_messageIcon"></label>
+                                <input class="form-control" id="admin-message-icon" placeholder="/Lotus/Interface/Icons/Npcs/Ordis.png" />
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label" for="admin-message-att" data-loc="admin_messageAtt"></label>
+                                <textarea class="form-control" id="admin-message-att" rows="3" placeholder="/Lotus/Powersuits/Excalibur/ExcaliburPrime&#10;/Lotus/Weapons/Tenno/Melee/LongSword/SkanaPrime&#10;/Lotus/Weapons/Tenno/Pistol/LatoPrime"></textarea>
+                            </div>
+                            <div class="mb-2">
+                                <label class="form-label" for="admin-message-counted-att" data-loc="admin_messageCountedAtt"></label>
+                                <textarea class="form-control" id="admin-message-counted-att" rows="5" placeholder="[&#10;    { &quot;ItemType&quot;: &quot;/Lotus/Types/Items/MiscItems/OxiumAlloy&quot;, &quot;ItemCount&quot;: 1200 },&#10;    { &quot;ItemType&quot;: &quot;/Lotus/Types/Items/MiscItems/OxiumAlloy&quot;, &quot;ItemCount&quot;: 1200 }&#10;]"></textarea>
+                            </div>
+                            <div class="form-check mb-3">
+                                <input class="form-check-input" type="checkbox" id="admin-message-high-priority" checked />
+                                <label class="form-check-label" for="admin-message-high-priority"><abbr data-loc="admin_messageHighPriority" data-loc-title="admin_messageHighPriorityHelp"></abbr></label>
+                            </div>
+                            <button class="btn btn-primary" id="admin-broadcast-submit" onclick="doAdminBroadcastInbox();" data-loc="admin_sendInboxMessage"></button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="toast-container position-fixed bottom-0 end-0 p-3"></div>
+    </div>
+    <datalist id="datalist-Suits"></datalist>
+    <datalist id="datalist-SpaceSuits"></datalist>
+    <datalist id="datalist-LongGuns"></datalist>
+    <datalist id="datalist-Pistols"></datalist>
+    <datalist id="datalist-Melee"></datalist>
+    <datalist id="datalist-SpaceGuns"></datalist>
+    <datalist id="datalist-SpaceMelee"></datalist>
+    <datalist id="datalist-SentinelWeapons"></datalist>
+    <datalist id="datalist-Sentinels"></datalist>
+    <datalist id="datalist-MechSuits"></datalist>
+    <datalist id="datalist-MoaPets"></datalist>
+    <datalist id="datalist-KubrowPets"></datalist>
+    <datalist id="datalist-QuestKeys"></datalist>
+    <datalist id="datalist-miscitems"></datalist>
+    <datalist id="datalist-mods"></datalist>
+    <datalist id="datalist-archonCrystalUpgrades"></datalist>
+    <datalist id="datalist-OperatorAmps"></datalist>
+    <datalist id="datalist-EvolutionProgress"></datalist>
+    <datalist id="datalist-ModularParts"></datalist>
+    <datalist id="datalist-ModularParts-HB_DECK"></datalist>
+    <datalist id="datalist-ModularParts-HB_ENGINE"></datalist>
+    <datalist id="datalist-ModularParts-HB_FRONT"></datalist>
+    <datalist id="datalist-ModularParts-HB_JET"></datalist>
+    <datalist id="datalist-ModularParts-AMP_OCULUS"></datalist>
+    <datalist id="datalist-ModularParts-AMP_CORE"></datalist>
+    <datalist id="datalist-ModularParts-AMP_BRACE"></datalist>
+    <datalist id="datalist-ModularParts-BLADE"></datalist>
+    <datalist id="datalist-ModularParts-HILT"></datalist>
+    <datalist id="datalist-ModularParts-HILT_WEIGHT"></datalist>
+    <datalist id="datalist-ModularParts-GUN_PRIMARY_HANDLE"></datalist>
+    <datalist id="datalist-ModularParts-GUN_SECONDARY_HANDLE"></datalist>
+    <datalist id="datalist-ModularParts-GUN_BARREL"></datalist>
+    <datalist id="datalist-ModularParts-GUN_CLIP"></datalist>
+    <datalist id="datalist-ModularParts-MOA_ENGINE"></datalist>
+    <datalist id="datalist-ModularParts-MOA_PAYLOAD"></datalist>
+    <datalist id="datalist-ModularParts-MOA_HEAD"></datalist>
+    <datalist id="datalist-ModularParts-MOA_LEG"></datalist>
+    <datalist id="datalist-ModularParts-ZANUKA_BODY"></datalist>
+    <datalist id="datalist-ModularParts-ZANUKA_HEAD"></datalist>
+    <datalist id="datalist-ModularParts-ZANUKA_LEG"></datalist>
+    <datalist id="datalist-ModularParts-ZANUKA_TAIL"></datalist>
+    <datalist id="datalist-ModularParts-CATBROW_ANTIGEN"></datalist>
+    <datalist id="datalist-ModularParts-CATBROW_MUTAGEN"></datalist>
+    <datalist id="datalist-ModularParts-KUBROW_ANTIGEN"></datalist>
+    <datalist id="datalist-ModularParts-KUBROW_MUTAGEN"></datalist>
+    <datalist id="datalist-Boosters"></datalist>
+    <datalist id="datalist-Abilities"></datalist>
+    <datalist id="datalist-TechProjects"></datalist>
+    <datalist id="datalist-VaultDecoRecipes"></datalist>
+    <datalist id="datalist-FlavourItems"></datalist>
+    <datalist id="datalist-ShipDecorations"></datalist>
+    <datalist id="datalist-WeaponSkins"></datalist>
+    <datalist id="datalist-VaultMiscItems"></datalist>
+    <datalist id="datalist-circuitGameModes">
+        <option>Survival</option>
+        <option>VoidFlood</option>
+        <option>Excavation</option>
+        <option>Defense</option>
+        <option>Exterminate</option>
+        <option>Assassination</option>
+        <option>Alchemy</option>
+    </datalist>
+    <datalist id="datalist-usernames"></datalist>
+    <script src="/webui/libs/jquery-3.6.0.min.js"></script>
+    <script src="/webui/libs/whirlpool-js.min.js"></script>
+    <script src="/webui/libs/single.js"></script>
+    <script src="/webui/riven-tool/RivenParser.js"></script>
+    <script src="/webui/config.js"></script>
+    <script src="/webui/script.js"></script>
+    <script src="/webui/script.importSamples.js" async defer></script>
+    <script src="/webui/libs/bootstrap.bundle.min.js"></script>
+    <script>
+        setTimeout(function() {
+            if (location.protocol == "file:") {
+                document.write("You can access the WebUI via http://localhost/ when SpaceNinjaServer is running.");
+            }
+        }, 1);
+    </script>
+</body>
+</html>

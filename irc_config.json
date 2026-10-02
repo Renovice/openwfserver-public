@@ -1,0 +1,8 @@
+{
+  "http_host": "localhost",
+  "http_port": 80,
+  "http_use_tls": false,
+  "mgmt_port": 6688,
+  "mgmt_loopback_only": true,
+  "public_chats_allow_noobies": false
+}

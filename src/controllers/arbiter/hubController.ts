@@ -1,0 +1,36 @@
+import type { RequestHandler } from "express";
+import { config, getReflexiveAddress, type IHubServer, type TRegionId } from "../../services/configService.ts";
+import { hubInstances, pickHubServer } from "../../services/arbiterService.ts";
+import { getBuildLabelForUnauthenticatedRequest } from "../../services/loginService.ts";
+import { version_compare } from "../../helpers/inventoryHelpers.ts";
+import gameToBuildVersion from "../../constants/gameToBuildVersion.ts";
+
+export const hubController: RequestHandler = (req, res) => {
+    const arr = (req.query.level as string).split("_");
+    const instanceId = arr.pop();
+    const level = config.noHubDiscrimination ? arr[0] : arr.join("_");
+
+    let hubServer: IHubServer | undefined;
+    if (`${level}_${instanceId}` in hubInstances) {
+        hubInstances[`${level}_${instanceId}`].Players += 1;
+        const addr = hubInstances[`${level}_${instanceId}`].Hub;
+        hubServer = config.hubServers?.find(hub => hub.address == addr);
+    }
+    if (!hubServer) {
+        hubServer = pickHubServer(req.query.regionId as TRegionId);
+        hubInstances[`${level}_${instanceId}`] = {
+            Players: 1,
+            Hub: hubServer.address
+        };
+    }
+    const buildLabel = getBuildLabelForUnauthenticatedRequest(req);
+    const dtlsLevel = version_compare(buildLabel, gameToBuildVersion["43.0.0"]) >= 0 ? 99 : (config.dtls ?? 0);
+    const needToUseUdpProxy = dtlsLevel & 1 && hubServer.dtlsUnsupported;
+    const addr = hubServer.address.replaceAll("%THIS_MACHINE%", getReflexiveAddress(req).myAddress);
+
+    if (`${level}_${instanceId}` == req.query.level) {
+        res.json(`${needToUseUdpProxy ? "udp_proxy_upstream" : "hub"} ${addr}`);
+    } else {
+        res.json(`${needToUseUdpProxy ? "udp_proxy_upstream" : "hub"} ${addr} ${instanceId} ${level}`);
+    }
+};

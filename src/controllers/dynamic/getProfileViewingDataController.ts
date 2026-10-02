@@ -1,0 +1,413 @@
+import { fromOid, toLegacyOid, toMongoDate2, toOid2, version_compare } from "../../helpers/inventoryHelpers.ts";
+import type { TGuildDatabaseDocument } from "../../models/guildModel.ts";
+import { Guild, GuildMember } from "../../models/guildModel.ts";
+import type { TInventoryDatabaseDocument } from "../../models/inventoryModels/inventoryModel.ts";
+import { Inventory } from "../../models/inventoryModels/inventoryModel.ts";
+import { Loadout } from "../../models/inventoryModels/loadoutModel.ts";
+import { Account } from "../../models/loginModel.ts";
+import { Stats } from "../../models/statsModel.ts";
+import { allDailyAffiliationKeys } from "../../services/inventoryService.ts";
+import type { IMongoDateWithLegacySupport, IOidWithLegacySupport } from "../../types/commonTypes.ts";
+import type {
+    IAffiliation,
+    IAlignment,
+    IChallengeProgress,
+    IDailyAffiliations,
+    IInventoryAccolades,
+    IMission,
+    IPlayerSkills,
+    ITypeXPItem
+} from "../../types/inventoryTypes/inventoryTypes.ts";
+import { eLoadoutIndex } from "../../types/inventoryTypes/inventoryTypes.ts";
+import type { RequestHandler } from "express";
+import { getJSONfromString } from "../../helpers/stringHelpers.ts";
+import { ExportDojoRecipes } from "warframe-public-export-plus";
+import type { IStatsClient } from "../../types/statTypes.ts";
+import { toStoreItem } from "../../services/itemDataService.ts";
+import type { IEquipmentClient } from "../../types/equipmentTypes.ts";
+import type { ILoadoutConfigClient } from "../../types/saveLoadoutTypes.ts";
+import { skinLookupTable } from "../../helpers/skinLookupTable.ts";
+import type { ITechProjectClient } from "../../types/guildTypes.ts";
+import { getAccountForRequest, getBuildLabel } from "../../services/loginService.ts";
+import gameToBuildVersion from "../../constants/gameToBuildVersion.ts";
+import { BL_LATEST } from "../../constants/gameVersions.ts";
+import { getPrivateServerTuning } from "../../services/privateServerTuningService.ts";
+
+const getSpoofedDailyStandingCap = (playerLevel: number): number => Math.max(999_999, 16000 + playerLevel * 500);
+
+export const getProfileViewingDataGetController: RequestHandler = async (req, res) => {
+    if (req.query.playerId) {
+        const data = await getProfileViewingDataByPlayerId(req.query.playerId as string, BL_LATEST);
+        if (data) {
+            res.json(data);
+        } else {
+            res.status(409).send("Could not find requested account");
+        }
+    } else if (req.query.guildId) {
+        const data = await getProfileViewingDataByGuildId(req.query.guildId as string, BL_LATEST);
+        if (data) {
+            res.json(data);
+        } else {
+            res.status(409).send("Could not find guild");
+        }
+    } else {
+        res.sendStatus(400);
+    }
+};
+
+// For old versions, this was an authenticated POST request.
+type IGetProfileViewingDataRequest = { AccountId: string } | { GuildId: string };
+export const getProfileViewingDataPostController: RequestHandler = async (req, res) => {
+    const payload = getJSONfromString<IGetProfileViewingDataRequest>(String(req.body));
+    if ("AccountId" in payload) {
+        const account = await getAccountForRequest(req);
+        const buildLabel = getBuildLabel(req, account);
+        const data = await getProfileViewingDataByPlayerId(payload.AccountId, buildLabel);
+        if (data) {
+            res.json(data);
+        } else {
+            res.status(409).send("Could not find requested account");
+        }
+    } else if ("GuildId" in payload) {
+        const account = await getAccountForRequest(req);
+        const buildLabel = getBuildLabel(req, account);
+        const data = await getProfileViewingDataByGuildId(payload.GuildId, buildLabel);
+        if (data) {
+            res.json(data);
+        } else {
+            res.status(409).send("Could not find guild");
+        }
+    } else {
+        const playerId = req.query.playerId as string; // companion app sends a POST request should be handled like a GET request
+        const data = await getProfileViewingDataByPlayerId(playerId, BL_LATEST);
+        if (data) {
+            res.json(data);
+        } else {
+            res.status(409).send("Could not find requested account");
+        }
+    }
+};
+
+const getProfileViewingDataByPlayerId = async (
+    playerId: string,
+    buildLabel: string
+): Promise<IProfileViewingData | undefined> => {
+    const account = await Account.findById(playerId, "DisplayName email");
+    if (!account) {
+        return;
+    }
+    const inventory = (await Inventory.findOne({ accountOwnerId: account._id }))!;
+
+    const result: IPlayerProfileViewingDataResult = {
+        AccountId: toOid2(account._id, buildLabel),
+        DisplayName: account.DisplayName,
+        PlayerLevel: (inventory.spoofMasteryRank ?? -1) !== -1 ? inventory.spoofMasteryRank! : inventory.PlayerLevel,
+        LoadOutInventory: {
+            WeaponSkins: [],
+            XPInfo: inventory.XPInfo
+        },
+        PlayerSkills: inventory.PlayerSkills,
+        ChallengeProgress: inventory.ChallengeProgress,
+        DeathMarks: inventory.DeathMarks,
+        Harvestable: inventory.Harvestable,
+        DeathSquadable: inventory.DeathSquadable,
+        Created: toMongoDate2(inventory.Created, buildLabel),
+        TitleType: inventory.TitleType,
+        MigratedToConsole: false,
+        Missions: inventory.Missions,
+        Affiliations: inventory.Affiliations,
+        DailyFocus: inventory.DailyFocus,
+        Wishlist: inventory.Wishlist,
+        Alignment: inventory.Alignment,
+        Staff: inventory.Staff,
+        Founder: inventory.Founder,
+        Guide: inventory.Guide,
+        Moderator: inventory.Moderator,
+        Partner: inventory.Partner,
+        Accolades: inventory.Accolades
+    };
+    await populateLoadout(inventory, result, buildLabel);
+    if (inventory.GuildId) {
+        const guild = (await Guild.findById(inventory.GuildId, "Name Tier XP Class Emblem"))!;
+        populateGuild(guild, result, buildLabel);
+    }
+    const noDailyStandingLimits =
+        inventory.noDailyStandingLimits || getPrivateServerTuning(account)?.noDailyStandingLimits;
+    const spoofedDailyAffiliation = getSpoofedDailyStandingCap(result.PlayerLevel);
+    for (const key of allDailyAffiliationKeys) {
+        result[key] = noDailyStandingLimits ? spoofedDailyAffiliation : inventory[key];
+    }
+
+    return {
+        Results: [result],
+        TechProjects: [],
+        XpComponents: [],
+        //XpCacheExpiryDate, some IMongoDate in the future, no clue what it's for
+        Stats: (await Stats.findOne({ accountOwnerId: account._id }))!.toJSON() as IStatsClient
+    };
+};
+
+export const getProfileViewingDataByGuildId = async (
+    guildId: string,
+    buildLabel: string
+): Promise<IProfileViewingData | undefined> => {
+    const guild = await Guild.findById(guildId, "Name Tier XP Class Emblem TechProjects ClaimedXP");
+    if (!guild) {
+        return;
+    }
+    const members = await GuildMember.find({ guildId: guild._id, status: 0 });
+    const results: IPlayerProfileViewingDataResult[] = [];
+    for (let i = 0; i != Math.min(4, members.length); ++i) {
+        const member = members[i];
+        const [account, inventory] = await Promise.all([
+            Account.findById(member.accountId, "DisplayName"),
+            Inventory.findOne(
+                { accountOwnerId: member.accountId },
+                "DisplayName PlayerLevel XPInfo LoadOutPresets CurrentLoadOutIds WeaponSkins Suits Pistols LongGuns Melee"
+            )
+        ]);
+        const result: IPlayerProfileViewingDataResult = {
+            AccountId: toOid2(account!._id, buildLabel),
+            DisplayName: account!.DisplayName,
+            PlayerLevel:
+                (inventory!.spoofMasteryRank ?? -1) !== -1 ? inventory!.spoofMasteryRank! : inventory!.PlayerLevel,
+            LoadOutInventory: {
+                WeaponSkins: [],
+                XPInfo: inventory!.XPInfo
+            }
+        };
+        await populateLoadout(inventory!, result, buildLabel);
+        results.push(result);
+    }
+    populateGuild(guild, results[0], buildLabel);
+
+    const combinedStats: IStatsClient = {};
+    const statsArr = await Stats.find({ accountOwnerId: { $in: members.map(x => x.accountId) } }).lean(); // need this as POJO so Object.entries works as expected
+    for (const stats of statsArr) {
+        for (const [key, value] of Object.entries(stats)) {
+            if (typeof value == "number" && key != "__v") {
+                (combinedStats[key as keyof IStatsClient] as number | undefined) ??= 0;
+                (combinedStats[key as keyof IStatsClient] as number) += value;
+            }
+        }
+        for (const arrayName of ["Weapons", "Enemies", "Scans", "Missions", "PVP"] as const) {
+            if (stats[arrayName]) {
+                combinedStats[arrayName] ??= [];
+                for (const entry of stats[arrayName]) {
+                    const combinedEntry = combinedStats[arrayName].find(x => x.type == entry.type);
+                    if (combinedEntry) {
+                        for (const [key, value] of Object.entries(entry)) {
+                            if (typeof value == "number") {
+                                (combinedEntry[key as keyof typeof combinedEntry] as unknown as number | undefined) ??=
+                                    0;
+                                (combinedEntry[key as keyof typeof combinedEntry] as unknown as number) += value;
+                            }
+                        }
+                    } else {
+                        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+                        combinedStats[arrayName].push(entry as any);
+                    }
+                }
+            }
+        }
+    }
+
+    const xpComponents: IXPComponentClient[] = [];
+    if (guild.ClaimedXP) {
+        for (const componentName of guild.ClaimedXP) {
+            if (componentName.endsWith(".level")) {
+                const [key] = Object.entries(ExportDojoRecipes.rooms).find(
+                    ([_key, value]) => value.resultType == componentName
+                )!;
+                xpComponents.push({
+                    StoreTypeName: toStoreItem(key)
+                });
+            } else {
+                const [key] = Object.entries(ExportDojoRecipes.decos).find(
+                    ([_key, value]) => value.resultType == componentName
+                )!;
+                xpComponents.push({
+                    StoreTypeName: toStoreItem(key)
+                });
+            }
+        }
+    }
+
+    return {
+        Results: results,
+        TechProjects:
+            guild.TechProjects?.map(x => ({
+                ...x,
+                CompletionDate: x.CompletionDate ? toMongoDate2(x.CompletionDate, buildLabel) : undefined
+            })) ?? [],
+        XpComponents: xpComponents,
+        //XpCacheExpiryDate, some IMongoDate in the future, no clue what it's for
+        Stats: combinedStats
+    };
+};
+
+interface IProfileViewingData {
+    Results: IPlayerProfileViewingDataResult[];
+    TechProjects: ITechProjectClient[];
+    XpComponents: IXPComponentClient[];
+    //XpCacheExpiryDate, some IMongoDate in the future, no clue what it's for
+    Stats: IStatsClient;
+}
+
+interface IPlayerProfileViewingDataResult extends Partial<IDailyAffiliations>, IInventoryAccolades {
+    AccountId: IOidWithLegacySupport;
+    DisplayName: string;
+    PlayerLevel: number;
+    LoadOutPreset?: Omit<ILoadoutConfigClient, "ItemId"> & { ItemId?: IOidWithLegacySupport };
+    LoadOutInventory: {
+        WeaponSkins: { ItemType: string }[];
+        Suits?: IEquipmentClient[];
+        Pistols?: IEquipmentClient[];
+        LongGuns?: IEquipmentClient[];
+        Melee?: IEquipmentClient[];
+        XPInfo: ITypeXPItem[];
+    };
+    GuildId?: IOidWithLegacySupport;
+    GuildName?: string;
+    GuildTier?: number;
+    GuildXp?: number;
+    GuildClass?: number;
+    GuildEmblem?: boolean;
+    PlayerSkills?: IPlayerSkills;
+    ChallengeProgress?: IChallengeProgress[];
+    DeathMarks?: string[];
+    Harvestable?: boolean;
+    DeathSquadable?: boolean;
+    Created?: IMongoDateWithLegacySupport;
+    TitleType?: string;
+    MigratedToConsole?: boolean;
+    Missions?: IMission[];
+    Affiliations?: IAffiliation[];
+    DailyFocus?: number;
+    Wishlist?: string[];
+    Alignment?: IAlignment;
+}
+
+interface IXPComponentClient {
+    _id?: IOidWithLegacySupport;
+    StoreTypeName: string;
+    TypeName?: string;
+    PurchaseQuantity?: number;
+    ProductCategory?: "Recipes";
+    Rarity?: "COMMON";
+    RegularPrice?: number;
+    PremiumPrice?: number;
+    SellingPrice?: number;
+    DateAddedToManifest?: number;
+    PrimeSellingPrice?: number;
+    GuildXp?: number;
+    ResultPrefab?: string;
+    ResultDecoration?: string;
+    ShowInMarket?: boolean;
+    ShowInInventory?: boolean;
+    locTags?: Record<string, string>;
+}
+
+const processLoadoutEquipment = (
+    inventory: TInventoryDatabaseDocument,
+    skins: Set<string>,
+    item: IEquipmentClient,
+    buildLabel: string
+): void => {
+    // Resolve and collect skins
+    for (const config of item.Configs) {
+        if (config.Skins) {
+            for (let i = 0; i != config.Skins.length; ++i) {
+                // Resolve oids to type names
+                if (config.Skins[i].length == 24) {
+                    if (config.Skins[i].substring(0, 16) == "ca70ca70ca70ca70") {
+                        config.Skins[i] = skinLookupTable[parseInt(config.Skins[i].substring(16), 16)];
+                    } else {
+                        const skinItem = inventory.WeaponSkins.id(config.Skins[i]);
+                        config.Skins[i] = skinItem ? skinItem.ItemType : "";
+                    }
+                }
+
+                // Collect type names
+                if (config.Skins[i]) {
+                    skins.add(config.Skins[i]);
+                }
+            }
+        }
+    }
+
+    if (version_compare(buildLabel, gameToBuildVersion["19.5.3"]) <= 0) {
+        toLegacyOid(item.ItemId);
+    }
+};
+
+const populateLoadout = async (
+    inventory: TInventoryDatabaseDocument,
+    result: IPlayerProfileViewingDataResult,
+    buildLabel: string
+): Promise<void> => {
+    if (inventory.CurrentLoadOutIds.length) {
+        const loadout = (await Loadout.findById(inventory.LoadOutPresets, "NORMAL"))!;
+
+        result.LoadOutPreset = loadout.NORMAL.id(
+            inventory.CurrentLoadOutIds[eLoadoutIndex.NORMAL]
+        )!.toJSON<ILoadoutConfigClient>();
+        result.LoadOutPreset.ItemId = undefined;
+        if (version_compare(buildLabel, gameToBuildVersion["19.5.3"]) <= 0) {
+            if (result.LoadOutPreset.s?.ItemId) {
+                toLegacyOid(result.LoadOutPreset.s.ItemId);
+            }
+            if (result.LoadOutPreset.l?.ItemId) {
+                toLegacyOid(result.LoadOutPreset.l.ItemId);
+            }
+            if (result.LoadOutPreset.p?.ItemId) {
+                toLegacyOid(result.LoadOutPreset.p.ItemId);
+            }
+            if (result.LoadOutPreset.m?.ItemId) {
+                toLegacyOid(result.LoadOutPreset.m.ItemId);
+            }
+        }
+
+        const skins = new Set<string>();
+        if (result.LoadOutPreset.s?.ItemId) {
+            result.LoadOutInventory.Suits = [
+                inventory.Suits.id(fromOid(result.LoadOutPreset.s.ItemId))!.toJSON<IEquipmentClient>()
+            ];
+            processLoadoutEquipment(inventory, skins, result.LoadOutInventory.Suits[0], buildLabel);
+        }
+        if (result.LoadOutPreset.p?.ItemId) {
+            result.LoadOutInventory.Pistols = [
+                inventory.Pistols.id(fromOid(result.LoadOutPreset.p.ItemId))!.toJSON<IEquipmentClient>()
+            ];
+            processLoadoutEquipment(inventory, skins, result.LoadOutInventory.Pistols[0], buildLabel);
+        }
+        if (result.LoadOutPreset.l?.ItemId) {
+            result.LoadOutInventory.LongGuns = [
+                inventory.LongGuns.id(fromOid(result.LoadOutPreset.l.ItemId))!.toJSON<IEquipmentClient>()
+            ];
+            processLoadoutEquipment(inventory, skins, result.LoadOutInventory.LongGuns[0], buildLabel);
+        }
+        if (result.LoadOutPreset.m?.ItemId) {
+            result.LoadOutInventory.Melee = [
+                inventory.Melee.id(fromOid(result.LoadOutPreset.m.ItemId))!.toJSON<IEquipmentClient>()
+            ];
+            processLoadoutEquipment(inventory, skins, result.LoadOutInventory.Melee[0], buildLabel);
+        }
+        for (const skin of skins) {
+            result.LoadOutInventory.WeaponSkins.push({ ItemType: skin });
+        }
+    }
+};
+
+const populateGuild = (
+    guild: TGuildDatabaseDocument,
+    result: IPlayerProfileViewingDataResult,
+    buildLabel: string
+): void => {
+    result.GuildId = toOid2(guild._id, buildLabel);
+    result.GuildName = guild.Name;
+    result.GuildTier = guild.Tier;
+    result.GuildXp = guild.XP;
+    result.GuildClass = guild.Class;
+    result.GuildEmblem = guild.Emblem;
+};

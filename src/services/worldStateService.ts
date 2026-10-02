@@ -1,0 +1,6595 @@
+import { privateBaroExtraStock } from "../constants/privateBaroExtraStock.ts";
+import baro, { type IBaroDataTradeOffer } from "../constants/baro.ts";
+import varzia from "../constants/varzia.ts";
+import fissureMissions from "../../static/fixed_responses/worldState/fissureMissions.json" with { type: "json" };
+import sortieTilesets from "../../static/fixed_responses/worldState/sortieTilesets.json" with { type: "json" };
+import sortieTilesetMissions from "../../static/fixed_responses/worldState/sortieTilesetMissions.json" with { type: "json" };
+import syndicateMissions from "../../static/fixed_responses/worldState/syndicateMissions.json" with { type: "json" };
+import darvoDeals from "../constants/darvoDeals.ts";
+import invasionNodes from "../../static/fixed_responses/worldState/invasionNodes.json" with { type: "json" };
+import invasionRewards from "../../static/fixed_responses/worldState/invasionRewards.json" with { type: "json" };
+import pvpChallenges from "../../static/fixed_responses/worldState/pvpChallenges.json" with { type: "json" };
+import { EPOCH, unixTimesInMs } from "../constants/timeConstants.ts";
+import { getEventClock } from "./eventClockService.ts";
+import { config } from "./configService.ts";
+import { getRandomElement, getRandomInt, sequentiallyUniqueRandomElement, SRng } from "./rngService.ts";
+import type {
+    IBundle,
+    IMissionReward,
+    IRegion,
+    ITilesetMission,
+    TFaction,
+    TMissionType
+} from "warframe-public-export-plus";
+import {
+    ExportBundles,
+    ExportCustoms,
+    ExportFlavour,
+    ExportRecipes,
+    ExportRegions,
+    ExportResources,
+    ExportSentinels,
+    ExportSyndicates,
+    ExportTilesets,
+    ExportWarframes,
+    ExportWeapons
+} from "warframe-public-export-plus";
+import type {
+    ICalendarDay,
+    ICalendarEvent,
+    ICalendarSeason,
+    IAlert,
+    IGoal,
+    IInvasion,
+    ILiteSortie,
+    IPrimeVaultTrader,
+    IPrimeVaultTraderOffer,
+    IPVPChallengeInstance,
+    ISeasonChallenge,
+    ISortie,
+    ISortieMission,
+    ISyndicateMissionInfo,
+    ITmp,
+    IVoidStorm,
+    IVoidTrader,
+    IVoidTraderOffer,
+    IWorldState,
+    TCircuitGameMode,
+    IFlashSale,
+    IAlertMissionInfo,
+    IEndlessXpChoice,
+    IGoalV9
+} from "../types/worldStateTypes.ts";
+import { toMongoDate2, toOid, toOid2, fromMongoDate } from "../helpers/inventoryHelpers.ts";
+import { logger } from "../utils/logger.ts";
+import { DailyDeal, Fissure } from "../models/worldStateModel.ts";
+import { toStoreItem, fromStoreItem, getRegions } from "./itemDataService.ts";
+import { factionToInt, getConquest, getMissionTypeForLegacyOverride } from "./conquestService.ts";
+import { getDescent } from "./descentService.ts";
+import { catBreadHash } from "../helpers/stringHelpers.ts";
+import { Guild } from "../models/guildModel.ts";
+import { libraryTargetToAvatar } from "../constants/synthesis.ts";
+import { BL_LATEST, BV_LATEST } from "../constants/gameVersions.ts";
+import { isRegionAvailableIn } from "./itemDataService.ts";
+import gameToBuildVersionInt from "../constants/gameToBuildVersionInt.ts";
+import { buildVersionToInt, intToBuildVersion } from "../helpers/versionHelper.ts";
+import {
+    dogDaysFlashSales,
+    naberusNightsFlashSales,
+    prideMonthFlashSales,
+    qqtcFlashSales,
+    saintPatrickDayFlashSales,
+    tennobaumFlashSales,
+    type IFlashSaleData
+} from "../constants/flashSales.ts";
+import { getGeneratedNightwaveSyndicate } from "./generatedMetadataService.ts";
+
+const sortieBosses = [
+    "SORTIE_BOSS_HYENA",
+    "SORTIE_BOSS_KELA",
+    "SORTIE_BOSS_VOR",
+    "SORTIE_BOSS_RUK",
+    "SORTIE_BOSS_HEK",
+    "SORTIE_BOSS_KRIL",
+    "SORTIE_BOSS_TYL",
+    "SORTIE_BOSS_JACKAL",
+    "SORTIE_BOSS_ALAD",
+    "SORTIE_BOSS_AMBULAS",
+    "SORTIE_BOSS_NEF",
+    "SORTIE_BOSS_RAPTOR",
+    "SORTIE_BOSS_PHORID",
+    "SORTIE_BOSS_LEPHANTIS",
+    "SORTIE_BOSS_INFALAD",
+    "SORTIE_BOSS_CORRUPTED_VOR"
+] as const;
+
+type TSortieBoss = (typeof sortieBosses)[number];
+
+const sortieBossToFaction: Record<TSortieBoss, TFaction> = {
+    SORTIE_BOSS_HYENA: "FC_CORPUS",
+    SORTIE_BOSS_KELA: "FC_GRINEER",
+    SORTIE_BOSS_VOR: "FC_GRINEER",
+    SORTIE_BOSS_RUK: "FC_GRINEER",
+    SORTIE_BOSS_HEK: "FC_GRINEER",
+    SORTIE_BOSS_KRIL: "FC_GRINEER",
+    SORTIE_BOSS_TYL: "FC_GRINEER",
+    SORTIE_BOSS_JACKAL: "FC_CORPUS",
+    SORTIE_BOSS_ALAD: "FC_CORPUS",
+    SORTIE_BOSS_AMBULAS: "FC_CORPUS",
+    SORTIE_BOSS_NEF: "FC_CORPUS",
+    SORTIE_BOSS_RAPTOR: "FC_CORPUS",
+    SORTIE_BOSS_PHORID: "FC_INFESTATION",
+    SORTIE_BOSS_LEPHANTIS: "FC_INFESTATION",
+    SORTIE_BOSS_INFALAD: "FC_INFESTATION",
+    SORTIE_BOSS_CORRUPTED_VOR: "FC_OROKIN"
+};
+
+const sortieFactionToSystemIndexes: Record<string, number[]> = {
+    FC_GRINEER: [0, 2, 3, 5, 6, 9, 11, 17, 18],
+    FC_CORPUS: [1, 4, 7, 8, 12, 15, 17],
+    FC_INFESTATION: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16],
+    FC_OROKIN: [14]
+};
+
+const sortieFactionToFactions: Record<string, TFaction[]> = {
+    FC_GRINEER: ["FC_GRINEER"],
+    FC_CORPUS: ["FC_CORPUS"],
+    FC_INFESTATION: ["FC_GRINEER", "FC_CORPUS", "FC_INFESTATION"],
+    FC_OROKIN: ["FC_OROKIN"]
+};
+
+const tennogenPattern = /\/SW|SteamWorkshop|TennoGen|Tennogen|workshop/i;
+const privateMarketBoosterStoreItems = [
+    "/Lotus/Types/StoreItems/Boosters/AffinityBooster30DayStoreItem",
+    "/Lotus/Types/StoreItems/Boosters/CreditBooster30DayStoreItem",
+    "/Lotus/Types/StoreItems/Boosters/ModDropChanceBooster30DayStoreItem",
+    "/Lotus/Types/StoreItems/Boosters/ResourceAmount30DayStoreItem",
+    "/Lotus/Types/StoreItems/Boosters/ResourceDropChance30DayStoreItem",
+    "/Lotus/Types/StoreItems/Boosters/AffinityBooster90DayStoreItem",
+    "/Lotus/Types/StoreItems/Boosters/CreditBooster90DayStoreItem",
+    "/Lotus/Types/StoreItems/Boosters/ModDropChanceBooster90DayStoreItem",
+    "/Lotus/Types/StoreItems/Boosters/ResourceAmount90DayStoreItem"
+] as const;
+
+const currentPrimeAccessVarziaItems = [
+    { typeName: "/Lotus/Powersuits/Hoplite/StyanaxPrime", primePrice: 3 },
+    { typeName: "/Lotus/Weapons/Tenno/LongGuns/PrimeAfentis/PrimeAfentisWeapon", primePrice: 2 },
+    { typeName: "/Lotus/Weapons/Tenno/Pistols/PrimeAthodai/PrimeAthodaiPistolWeapon", primePrice: 2 },
+    { typeName: "/Lotus/Upgrades/Skins/Scarves/PrimeStyanaxSyandana", primePrice: 2 },
+    { typeName: "/Lotus/Upgrades/Skins/Armor/PrimeStyanaxArmor/PrimeStyanaxAArmor", primePrice: 1 },
+    { typeName: "/Lotus/Upgrades/Skins/Armor/PrimeStyanaxArmor/PrimeStyanaxCArmor", primePrice: 1 },
+    { typeName: "/Lotus/Upgrades/Skins/Armor/PrimeStyanaxArmor/PrimeStyanaxLArmor", primePrice: 1 },
+    { typeName: "/Lotus/Types/Items/ShipDecos/LisetPropStyanaxPrimeSpearShieldDeco", primePrice: 1 },
+    { typeName: "/Lotus/Types/StoreItems/AvatarImages/Primes/ImageStyanaxPrimeBright", primePrice: 1 },
+    { typeName: "/Lotus/Types/StoreItems/AvatarImages/Primes/ImageStyanaxPrimeDark", primePrice: 1 },
+    { typeName: "/Lotus/Powersuits/Werewolf/VorunaPrime", primePrice: 3 },
+    { typeName: "/Lotus/Weapons/Tenno/Melee/Axe/PrimeVorunaAxeWeapon", primePrice: 2 },
+    { typeName: "/Lotus/Weapons/Tenno/LongGuns/PrimePerigale/PrimePerigaleSniper", primePrice: 2 },
+    { typeName: "/Lotus/Upgrades/Skins/Scarves/PrimeVorunaSyandana", primePrice: 2 },
+    { typeName: "/Lotus/Upgrades/Skins/Effects/PrimeVorunaEphemera", primePrice: 2 },
+    { typeName: "/Lotus/Upgrades/Skins/Liset/VorunaPrimeHoodOrnament", primePrice: 1 },
+    { typeName: "/Lotus/Types/Items/Titles/TitleVorunaPrime", primePrice: 1 },
+    { typeName: "/Lotus/Types/StoreItems/AvatarImages/Primes/ImageVorunaPrimeBright", primePrice: 1 },
+    { typeName: "/Lotus/Types/StoreItems/AvatarImages/Primes/ImageVorunaPrimeDark", primePrice: 1 }
+] as const;
+
+const getAllMarketBundleItems = (): string[] => {
+    return Object.entries(ExportBundles)
+        .filter(([typeName, bundle]) => {
+            const name = typeof bundle.name == "string" ? bundle.name : "";
+            return (
+                (typeName.includes("/StoreItems/") ||
+                    typeName.includes("/Types/StoreItems/") ||
+                    typeName.includes("/Packages/") ||
+                    /bundle/i.test(`${typeName} ${name}`)) &&
+                !typeName.includes("/Circuit") &&
+                !typeName.includes("Endless")
+            );
+        })
+        .map(([typeName]) => typeName)
+        .sort();
+};
+
+type TGeneratedFlashSaleItem = Partial<IFlashSale> & { TypeName: string; marketItem?: string; minBuildLabel?: string };
+
+type TPrimeAccessExportEntry = {
+    excludeFromMarket?: boolean;
+    name?: string;
+    description?: string;
+};
+
+type TPrimeAccessExportTable = Record<string, TPrimeAccessExportEntry | undefined>;
+
+const getTennogenFlashSaleItems = (): TGeneratedFlashSaleItem[] => {
+    const price = Math.max(1, Math.trunc(config.privateServerTuning?.market?.tennogenPlatinumPrice ?? 75));
+    const items = new Map<string, TGeneratedFlashSaleItem>();
+    for (const [typeName, item] of Object.entries(ExportCustoms)) {
+        if (tennogenPattern.test(`${typeName} ${typeof item.name == "string" ? item.name : ""}`)) {
+            items.set(typeName, { TypeName: typeName, marketItem: toStoreItem(typeName), PremiumOverride: price });
+        }
+    }
+    for (const [typeName, item] of Object.entries(ExportFlavour)) {
+        if (tennogenPattern.test(`${typeName} ${typeof item.name == "string" ? item.name : ""}`)) {
+            items.set(typeName, { TypeName: typeName, marketItem: toStoreItem(typeName), PremiumOverride: price });
+        }
+    }
+    for (const [typeName, item] of Object.entries(ExportBundles)) {
+        if (tennogenPattern.test(`${typeName} ${typeof item.name == "string" ? item.name : ""}`)) {
+            items.set(typeName, { TypeName: typeName, PremiumOverride: price });
+        }
+    }
+    return [...items.values()].sort((a, b) => a.TypeName.localeCompare(b.TypeName));
+};
+
+const getPrimeAccessFlashSaleItems = (): TGeneratedFlashSaleItem[] => {
+    const price = Math.max(1, Math.trunc(config.privateServerTuning?.market?.primeAccessPlatinumPrice ?? 75));
+    const items = new Map<string, TGeneratedFlashSaleItem>();
+
+    for (const typeName of privateMarketBoosterStoreItems) {
+        if (typeName in ExportBundles) {
+            items.set(typeName, { TypeName: typeName, PremiumOverride: price });
+        }
+    }
+
+    return [...items.values()].sort((a, b) => a.TypeName.localeCompare(b.TypeName));
+};
+
+const getHeirloomMarketItems = (): string[] => {
+    const items = new Map<string, string>();
+    const add = (typeName: string): void => {
+        if (!items.has(typeName)) {
+            items.set(typeName, typeName);
+        }
+    };
+
+    const bundles = Object.entries(ExportBundles)
+        .filter(([typeName]) => /HeirloomPack/i.test(typeName))
+        .sort(([a], [b]) => a.localeCompare(b));
+
+    for (const [typeName, bundle] of bundles) {
+        add(typeName);
+        for (const component of bundle.components) {
+            add(component.typeName);
+        }
+    }
+
+    return [...items.values()];
+};
+
+const getLegacyHeirloomFlashSaleItems = (): TGeneratedFlashSaleItem[] => {
+    const customItem = (typeName: string, price: number): TGeneratedFlashSaleItem => ({
+        TypeName: typeName,
+        marketItem: toStoreItem(typeName),
+        PremiumOverride: price,
+        ShowInMarket: true
+    });
+
+    return [
+        {
+            TypeName: "/Lotus/Types/StoreItems/Packages/HeirloomPackB",
+            PremiumOverride: 400,
+            ShowInMarket: true
+        },
+        {
+            TypeName: "/Lotus/Types/StoreItems/Packages/HeirloomPackC",
+            PremiumOverride: 600,
+            ShowInMarket: true
+        },
+        customItem("/Lotus/Upgrades/Skins/Frost/FrostHeirloomSkin", 225),
+        customItem("/Lotus/Upgrades/Skins/Mag/MagHeirloomSkin", 225),
+        customItem("/Lotus/Upgrades/Skins/Crowns/HeirloomFrostCrown", 25),
+        customItem("/Lotus/Upgrades/Skins/Crowns/HeirloomMagCrown", 25)
+    ];
+};
+
+const sortieBossNode: Record<Exclude<TSortieBoss, "SORTIE_BOSS_CORRUPTED_VOR">, string> = {
+    SORTIE_BOSS_ALAD: "SolNode53",
+    SORTIE_BOSS_AMBULAS: "SolNode51",
+    SORTIE_BOSS_HEK: "SolNode24",
+    SORTIE_BOSS_HYENA: "SolNode127",
+    SORTIE_BOSS_INFALAD: "SolNode166",
+    SORTIE_BOSS_JACKAL: "SolNode104",
+    SORTIE_BOSS_KELA: "SolNode193",
+    SORTIE_BOSS_KRIL: "SolNode99",
+    SORTIE_BOSS_LEPHANTIS: "SolNode712",
+    SORTIE_BOSS_NEF: "SettlementNode20",
+    SORTIE_BOSS_PHORID: "SolNode171",
+    SORTIE_BOSS_RAPTOR: "SolNode210",
+    SORTIE_BOSS_RUK: "SolNode32",
+    SORTIE_BOSS_TYL: "SolNode105",
+    SORTIE_BOSS_VOR: "SolNode108"
+};
+
+const sortieAssassinationOnlyNodes: string[] = ["SolNode193", "SolNode105", "SolNode108"];
+
+const configAlerts: Record<string, IAlert & { minBuildVersion?: number }> = {
+    voidCorruption2025Week1: {
+        _id: { $oid: "677d452e2f324ee7b90f8ccf" },
+        Activation: { $date: { $numberLong: "1736524800000" } },
+        Expiry: { $date: { $numberLong: "2000000000000" } },
+        MissionInfo: {
+            location: "SolNode61",
+            missionType: "MT_SABOTAGE",
+            faction: "FC_CORPUS",
+            difficulty: 1,
+            missionReward: {
+                credits: 30000,
+                items: ["/Lotus/StoreItems/Upgrades/Mods/Pistol/DualStat/CorruptedFireRateDamagePistol"]
+            },
+            levelOverride: "/Lotus/Levels/Proc/Corpus/CorpusShipCoreSabotage",
+            enemySpec: "/Lotus/Types/Game/EnemySpecs/CorpusShipEnemySpecs/CorpusShipSquadA",
+            extraEnemySpec: "/Lotus/Types/Game/EnemySpecs/GamemodeExtraEnemySpecs/CorpusSabotageTiersA",
+            minEnemyLevel: 10,
+            maxEnemyLevel: 15
+        }
+    },
+    voidCorruption2025Week2: {
+        _id: { $oid: "677d45811daeae9de40e8c0f" },
+        Activation: { $date: { $numberLong: "1737129600000" } },
+        Expiry: { $date: { $numberLong: "2000000000000" } },
+        MissionInfo: {
+            location: "SettlementNode11",
+            missionType: "MT_DEFENSE",
+            faction: "FC_CORPUS",
+            difficulty: 1,
+            missionReward: {
+                credits: 30000,
+                items: ["/Lotus/StoreItems/Upgrades/Mods/Pistol/DualStat/CorruptedCritChanceFireRatePistol"]
+            },
+            levelOverride: "/Lotus/Levels/Proc/Corpus/CorpusShipDefense",
+            enemySpec: "/Lotus/Types/Game/EnemySpecs/CorpusShipEnemySpecs/CorpusShipSquadDefenseB",
+            minEnemyLevel: 20,
+            maxEnemyLevel: 25,
+            maxRotations: 2
+        }
+    },
+    voidCorruption2025Week3: {
+        _id: { $oid: "677d45a494ad716c90006b9a" },
+        Activation: { $date: { $numberLong: "1737734400000" } },
+        Expiry: { $date: { $numberLong: "2000000000000" } },
+        MissionInfo: {
+            location: "SolNode118",
+            missionType: "MT_ARTIFACT",
+            faction: "FC_CORPUS",
+            difficulty: 1,
+            missionReward: {
+                credits: 30000,
+                items: ["/Lotus/StoreItems/Upgrades/Mods/Pistol/DualStat/CorruptedCritDamagePistol"]
+            },
+            levelOverride: "/Lotus/Levels/Proc/Corpus/CorpusShipDisruption",
+            enemySpec: "/Lotus/Types/Game/EnemySpecs/CorpusShipEnemySpecs/CorpusShipSurvivalA",
+            extraEnemySpec: "/Lotus/Types/Game/EnemySpecs/SpecialMissionSpecs/DisruptionCorpusShip",
+            customAdvancedSpawners: ["/Lotus/Types/Enemies/AdvancedSpawners/ErrantSpecterInvasion"],
+            minEnemyLevel: 30,
+            maxEnemyLevel: 35
+        }
+    },
+    voidCorruption2025Week4: {
+        _id: { $oid: "677d4700682d173abb0e19fe" },
+        Activation: { $date: { $numberLong: "1738339200000" } },
+        Expiry: { $date: { $numberLong: "2000000000000" } },
+        MissionInfo: {
+            location: "SolNode4",
+            missionType: "MT_EXTERMINATION",
+            faction: "FC_CORPUS",
+            difficulty: 1,
+            missionReward: {
+                credits: 30000,
+                items: ["/Lotus/StoreItems/Upgrades/Mods/Pistol/DualStat/CorruptedDamageRecoilPistol"]
+            },
+            levelOverride: "/Lotus/Levels/Proc/Corpus/CorpusShipExterminate",
+            enemySpec: "/Lotus/Types/Game/EnemySpecs/CorpusShipEnemySpecs/CorpusShipExterminateMixed",
+            minEnemyLevel: 40,
+            maxEnemyLevel: 45
+        }
+    },
+    dagathAlerts2026Week1: {
+        _id: { $oid: "6949862e3f3f35491e02232c" },
+        Activation: { $date: { $numberLong: "1769022000000" } },
+        Expiry: { $date: { $numberLong: "2000000000000" } },
+        MissionInfo: {
+            location: "SolNode147",
+            missionType: "MT_TERRITORY",
+            faction: "FC_GRINEER",
+            difficulty: 1,
+            missionReward: {
+                credits: 10000,
+                items: ["/Lotus/StoreItems/Types/Recipes/WarframeRecipes/DagathChassisComponent"]
+            },
+            levelOverride: "/Lotus/Levels/Proc/Grineer/GrineerShipyardsInterception",
+            enemySpec: "/Lotus/Types/Game/EnemySpecs/GrineerShipyardsDefenseA",
+            minEnemyLevel: 25,
+            maxEnemyLevel: 35,
+            descText: "/Lotus/Language/Alerts/LotusGiftDesc"
+        },
+        Tag: "LotusGift",
+        ForceUnlock: true
+    },
+    dagathAlerts2026Week2: {
+        _id: { $oid: "6949863a548d83b650011de8" },
+        Activation: { $date: { $numberLong: "1769626800000" } },
+        Expiry: { $date: { $numberLong: "2000000000000" } },
+        MissionInfo: {
+            location: "SolNode404",
+            missionType: "MT_SABOTAGE",
+            faction: "FC_OROKIN",
+            difficulty: 1,
+            missionReward: {
+                credits: 10000,
+                items: ["/Lotus/StoreItems/Types/Recipes/WarframeRecipes/DagathHelmetComponent"]
+            },
+            levelOverride: "/Lotus/Levels/Proc/Orokin/OrokinTowerSabotageForest",
+            enemySpec: "/Lotus/Types/Game/EnemySpecs/OrokinSquadOne",
+            extraEnemySpec: "/Lotus/Types/Game/EnemySpecs/OrokinSabotageGrineerForest",
+            minEnemyLevel: 25,
+            maxEnemyLevel: 35,
+            vipAgent: "/Lotus/Types/Enemies/Grineer/Vip/JetpackSisters/JetpackSisters",
+            descText: "/Lotus/Language/Alerts/LotusGiftDesc"
+        },
+        Tag: "LotusGift",
+        ForceUnlock: true
+    },
+    dagathAlerts2026Week3: {
+        _id: { $oid: "69498642a0836c98e10f5e34" },
+        Activation: { $date: { $numberLong: "1770231600000" } },
+        Expiry: { $date: { $numberLong: "2000000000000" } },
+        MissionInfo: {
+            location: "SolNode100",
+            missionType: "MT_SURVIVAL",
+            faction: "FC_CORPUS",
+            difficulty: 1,
+            missionReward: {
+                credits: 10000,
+                items: ["/Lotus/StoreItems/Types/Recipes/WarframeRecipes/DagathSystemsComponent"]
+            },
+            levelOverride: "/Lotus/Levels/Proc/Corpus/CorpusGasCitySurvival",
+            enemySpec: "/Lotus/Types/Game/EnemySpecs/CorpusGasSurvival",
+            minEnemyLevel: 25,
+            maxEnemyLevel: 35,
+            descText: "/Lotus/Language/Alerts/LotusGiftDesc"
+        },
+        Tag: "LotusGift",
+        ForceUnlock: true
+    },
+    dagathAlerts2026Week4: {
+        _id: { $oid: "69498623a7342ab1500cc99b" },
+        Activation: { $date: { $numberLong: "1768417200000" } },
+        Expiry: { $date: { $numberLong: "2000000000000" } },
+        MissionInfo: {
+            location: "SolNode103",
+            missionType: "MT_EXTERMINATION",
+            faction: "FC_GRINEER",
+            difficulty: 1,
+            missionReward: {
+                credits: 10000,
+                items: ["/Lotus/StoreItems/Types/Recipes/WarframeRecipes/DagathBlueprint"]
+            },
+            levelOverride: "/Lotus/Levels/Proc/Grineer/GrineerAsteroidExterminate",
+            enemySpec: "/Lotus/Types/Game/EnemySpecs/GrineerExterminateBlades",
+            minEnemyLevel: 25,
+            maxEnemyLevel: 35,
+            descText: "/Lotus/Language/Alerts/LotusGiftDesc"
+        },
+        Tag: "LotusGift",
+        ForceUnlock: true
+    },
+    starDaysAlerts2026Week1: {
+        _id: { $oid: "696935998429008d89100af9" },
+        Activation: { $date: { $numberLong: "1770393600000" } },
+        Expiry: { $date: { $numberLong: "2000000000000" } },
+        MissionInfo: {
+            location: "SolNode22",
+            missionType: "MT_DEFENSE",
+            faction: "FC_CORPUS",
+            difficulty: 1,
+            missionReward: {
+                credits: 25000,
+                items: ["/Lotus/StoreItems/Types/StoreItems/AvatarImages/AvatarImageStarDaysStarDaysMarieGlyph"],
+                countedItems: [{ ItemType: "/Lotus/Types/Items/MiscItems/OrokinCatalyst", ItemCount: 1 }]
+            },
+            levelOverride: "/Lotus/Levels/Proc/Corpus/CorpusOutpostDefense",
+            enemySpec: "/Lotus/Types/Game/EnemySpecs/CorpusSquadDefenseB",
+            minEnemyLevel: 25,
+            maxEnemyLevel: 30,
+            descText: "/Lotus/Language/Alerts/LotusGiftDesc",
+            maxRotations: 1
+        },
+        Tag: "LotusGift",
+        ForceUnlock: true
+    },
+    starDaysAlerts2026Week2: {
+        _id: { $oid: "696935b47918af0b1c0c4c2f" },
+        Activation: { $date: { $numberLong: "1770998400000" } },
+        Expiry: { $date: { $numberLong: "2000000000000" } },
+        MissionInfo: {
+            location: "SolNode11",
+            missionType: "MT_MOBILE_DEFENSE",
+            faction: "FC_GRINEER",
+            difficulty: 1,
+            missionReward: {
+                credits: 25000,
+                items: ["/Lotus/StoreItems/Types/StoreItems/AvatarImages/AvatarImageStarDaysLyonGlyph"],
+                countedItems: [{ ItemType: "/Lotus/Types/Items/MiscItems/OrokinReactor", ItemCount: 1 }]
+            },
+            levelOverride: "/Lotus/Levels/Proc/Grineer/GrineerSettlementMobileDefense",
+            enemySpec: "/Lotus/Types/Game/EnemySpecs/DesertGrineerSquadOne",
+            minEnemyLevel: 25,
+            maxEnemyLevel: 30,
+            descText: "/Lotus/Language/Alerts/LotusGiftDesc"
+        },
+        Tag: "LotusGift",
+        ForceUnlock: true
+    },
+    starDaysAlerts2026Week3: {
+        _id: { $oid: "696935d518288b03bb0224ae" },
+        Activation: { $date: { $numberLong: "1771603200000" } },
+        Expiry: { $date: { $numberLong: "2000000000000" } },
+        MissionInfo: {
+            location: "SolNode121",
+            missionType: "MT_EXTERMINATION",
+            faction: "FC_CORPUS",
+            difficulty: 1,
+            missionReward: {
+                credits: 25000,
+                items: ["/Lotus/StoreItems/Types/StoreItems/AvatarImages/AvatarImageStarDaysRoatheGlyph"],
+                countedItems: [{ ItemType: "/Lotus/Types/Items/MiscItems/Forma", ItemCount: 1 }]
+            },
+            levelOverride: "/Lotus/Levels/Proc/Corpus/CorpusGasCityExterminate",
+            enemySpec: "/Lotus/Types/Game/EnemySpecs/CorpusGasExterminateMixed",
+            minEnemyLevel: 25,
+            maxEnemyLevel: 30,
+            descText: "/Lotus/Language/Alerts/LotusGiftDesc"
+        },
+        Tag: "LotusGift",
+        ForceUnlock: true
+    },
+    starDaysAlerts2026Week4: {
+        _id: { $oid: "696935ed8429008d89100cea" },
+        Activation: { $date: { $numberLong: "1772208000000" } },
+        Expiry: { $date: { $numberLong: "2000000000000" } },
+        MissionInfo: {
+            location: "SolNode82",
+            missionType: "MT_SABOTAGE",
+            faction: "FC_GRINEER",
+            difficulty: 1,
+            missionReward: {
+                credits: 25000,
+                items: ["/Lotus/StoreItems/Types/Items/ShipDecos/Props/Seasonal/StarDays2026HeartPictureFrame"],
+                countedItems: [{ ItemType: "/Lotus/Types/Items/MiscItems/UtilityUnlocker", ItemCount: 1 }]
+            },
+            levelOverride: "/Lotus/Levels/Proc/Grineer/GrineerGalleonCoreSabotage",
+            enemySpec: "/Lotus/Types/Game/EnemySpecs/GrineerSquadSix",
+            extraEnemySpec: "/Lotus/Types/Game/EnemySpecs/GamemodeExtraEnemySpecs/GrineerSabotageTiersTwo",
+            minEnemyLevel: 25,
+            maxEnemyLevel: 30,
+            descText: "/Lotus/Language/Alerts/LotusGiftDesc"
+        },
+        Tag: "LotusGift",
+        ForceUnlock: true
+    },
+    destiny2TributeAlert: {
+        _id: { $oid: "6a29b21c614c39ecbb0aa925" },
+        Activation: { $date: { $numberLong: "1781708400000" } },
+        Expiry: { $date: { $numberLong: "2000000000000" } },
+        MissionInfo: {
+            location: "SolNode20",
+            missionType: "MT_EXTERMINATION",
+            faction: "FC_GRINEER",
+            difficulty: 1,
+            missionReward: {
+                credits: 10000,
+                countedItems: [{ ItemType: "/Lotus/Types/Items/Titles/GuardianTitle", ItemCount: 1 }]
+            },
+            levelOverride: "/Lotus/Levels/Proc/Grineer/GrineerGalleonExterminate",
+            enemySpec: "/Lotus/Types/Game/EnemySpecs/GrineerExterminateSimple",
+            minEnemyLevel: 10,
+            maxEnemyLevel: 15,
+            descText: "/Lotus/Language/Alerts/LotusGiftDesc",
+            maxWaveNum: 167
+        },
+        Tag: "LotusGift",
+        ForceUnlock: true,
+        minBuildVersion: gameToBuildVersionInt["43.0.0"]
+    }
+};
+
+const alertGeneratorConfig: Record<
+    string,
+    {
+        alertInterval: number;
+        alertLength: number;
+        allowedSystemIndexes: number[];
+        baseAlert: Partial<IAlert>;
+        baseMissionInfo: Partial<IAlertMissionInfo>;
+    }
+> = {
+    "12MinWarEvent": {
+        alertInterval: unixTimesInMs.hour / 2,
+        alertLength: unixTimesInMs.hour * 1.5,
+        allowedSystemIndexes: [14],
+        baseAlert: {
+            Tag: "12MinWarEvent",
+            Icon: "/Lotus/Interface/Icons/WorldStatePanel/BloodOfPeritaEventBadge.png"
+        },
+        baseMissionInfo: {
+            minEnemyLevel: 65,
+            maxEnemyLevel: 70,
+            maxRotations: 1,
+            missionReward: {
+                credits: 8900, // should be random
+                countedItems: [
+                    {
+                        ItemType: "/Lotus/Types/Gameplay/Tau/Resources/TwelveResourceCurrencyItem",
+                        ItemCount: 20
+                    }
+                ]
+            },
+            descText: "/Lotus/Language/TauPrequel/TauPrequelFinal/TauPrequelEventAlertTitle",
+            questReq: "/Lotus/Types/Keys/TauPrequel/TauPrequelQuestKeyChain",
+            leadersAlwaysAllowed: true
+        }
+    },
+    JadeShadows: {
+        alertInterval: unixTimesInMs.hour / 2,
+        alertLength: unixTimesInMs.hour * 2,
+        allowedSystemIndexes: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17, 18],
+        baseAlert: {
+            Tag: "JadeShadows",
+            Icon: "/Lotus/Interface/Icons/WorldStatePanel/JadeShadowsEventBadge.png"
+        },
+        baseMissionInfo: {
+            minEnemyLevel: 50,
+            maxEnemyLevel: 50,
+            maxRotations: 1,
+            missionReward: {
+                credits: 8900, // should be random
+                countedItems: [
+                    {
+                        ItemType: "/Lotus/Types/Gameplay/JadeShadows/Resources/AscensionEventResourceItem",
+                        ItemCount: 10
+                    }
+                ]
+            },
+            descText: "/Lotus/Language/JadeShadows/EventAlertTitle",
+            questReq: "/Lotus/Types/Keys/JadeShadows/JadeShadowQuestKeyChain",
+            leadersAlwaysAllowed: true
+        }
+    }
+};
+
+const eidolonJobs: readonly string[] = [
+    "/Lotus/Types/Gameplay/Eidolon/Jobs/AssassinateBountyAss",
+    "/Lotus/Types/Gameplay/Eidolon/Jobs/AssassinateBountyCap",
+    "/Lotus/Types/Gameplay/Eidolon/Jobs/AttritionBountySab",
+    "/Lotus/Types/Gameplay/Eidolon/Jobs/AttritionBountyLib",
+    "/Lotus/Types/Gameplay/Eidolon/Jobs/AttritionBountyCap",
+    "/Lotus/Types/Gameplay/Eidolon/Jobs/AttritionBountyExt",
+    "/Lotus/Types/Gameplay/Eidolon/Jobs/ReclamationBountyCap",
+    "/Lotus/Types/Gameplay/Eidolon/Jobs/ReclamationBountyTheft",
+    "/Lotus/Types/Gameplay/Eidolon/Jobs/ReclamationBountyCache",
+    "/Lotus/Types/Gameplay/Eidolon/Jobs/CaptureBountyCapOne",
+    "/Lotus/Types/Gameplay/Eidolon/Jobs/CaptureBountyCapTwo",
+    "/Lotus/Types/Gameplay/Eidolon/Jobs/SabotageBountySab",
+    "/Lotus/Types/Gameplay/Eidolon/Jobs/RescueBountyResc"
+];
+
+const eidolonNarmerJobs: readonly string[] = [
+    "/Lotus/Types/Gameplay/Eidolon/Jobs/Narmer/AssassinateBountyAss",
+    "/Lotus/Types/Gameplay/Eidolon/Jobs/Narmer/AttritionBountyExt",
+    "/Lotus/Types/Gameplay/Eidolon/Jobs/Narmer/ReclamationBountyTheft",
+    "/Lotus/Types/Gameplay/Eidolon/Jobs/Narmer/AttritionBountyLib"
+];
+
+const eidolonGhoulJobs: readonly string[] = [
+    "/Lotus/Types/Gameplay/Eidolon/Jobs/Events/GhoulAlertBountyAss",
+    "/Lotus/Types/Gameplay/Eidolon/Jobs/Events/GhoulAlertBountyExt",
+    "/Lotus/Types/Gameplay/Eidolon/Jobs/Events/GhoulAlertBountyHunt",
+    "/Lotus/Types/Gameplay/Eidolon/Jobs/Events/GhoulAlertBountyRes"
+];
+
+const venusJobs: readonly string[] = [
+    "/Lotus/Types/Gameplay/Venus/Jobs/VenusArtifactJobAmbush",
+    "/Lotus/Types/Gameplay/Venus/Jobs/VenusArtifactJobExcavation",
+    "/Lotus/Types/Gameplay/Venus/Jobs/VenusArtifactJobRecovery",
+    "/Lotus/Types/Gameplay/Venus/Jobs/VenusChaosJobAssassinate",
+    "/Lotus/Types/Gameplay/Venus/Jobs/VenusChaosJobExcavation",
+    "/Lotus/Types/Gameplay/Venus/Jobs/VenusCullJobAssassinate",
+    "/Lotus/Types/Gameplay/Venus/Jobs/VenusCullJobExterminate",
+    "/Lotus/Types/Gameplay/Venus/Jobs/VenusCullJobResource",
+    "/Lotus/Types/Gameplay/Venus/Jobs/VenusIntelJobRecovery",
+    "/Lotus/Types/Gameplay/Venus/Jobs/VenusIntelJobResource",
+    "/Lotus/Types/Gameplay/Venus/Jobs/VenusIntelJobSpy",
+    "/Lotus/Types/Gameplay/Venus/Jobs/VenusSpyJobSpy",
+    "/Lotus/Types/Gameplay/Venus/Jobs/VenusTheftJobAmbush",
+    "/Lotus/Types/Gameplay/Venus/Jobs/VenusTheftJobExcavation",
+    "/Lotus/Types/Gameplay/Venus/Jobs/VenusTheftJobResource",
+    "/Lotus/Types/Gameplay/Venus/Jobs/VenusHelpingJobCaches",
+    "/Lotus/Types/Gameplay/Venus/Jobs/VenusHelpingJobResource",
+    "/Lotus/Types/Gameplay/Venus/Jobs/VenusHelpingJobSpy",
+    "/Lotus/Types/Gameplay/Venus/Jobs/VenusPreservationJobDefense",
+    "/Lotus/Types/Gameplay/Venus/Jobs/VenusPreservationJobRecovery",
+    "/Lotus/Types/Gameplay/Venus/Jobs/VenusPreservationJobResource",
+    "/Lotus/Types/Gameplay/Venus/Jobs/VenusWetworkJobAssassinate",
+    "/Lotus/Types/Gameplay/Venus/Jobs/VenusWetworkJobSpy"
+];
+
+const venusNarmerJobs: readonly string[] = [
+    "/Lotus/Types/Gameplay/Venus/Jobs/Narmer/NarmerVenusCullJobAssassinate",
+    "/Lotus/Types/Gameplay/Venus/Jobs/Narmer/NarmerVenusCullJobExterminate",
+    "/Lotus/Types/Gameplay/Venus/Jobs/Narmer/NarmerVenusPreservationJobDefense",
+    "/Lotus/Types/Gameplay/Venus/Jobs/Narmer/NarmerVenusTheftJobExcavation"
+];
+
+const microplanetJobs: readonly string[] = [
+    "/Lotus/Types/Gameplay/InfestedMicroplanet/Jobs/DeimosAreaDefenseBounty",
+    "/Lotus/Types/Gameplay/InfestedMicroplanet/Jobs/DeimosAssassinateBounty",
+    "/Lotus/Types/Gameplay/InfestedMicroplanet/Jobs/DeimosCrpSurvivorBounty",
+    "/Lotus/Types/Gameplay/InfestedMicroplanet/Jobs/DeimosGrnSurvivorBounty",
+    "/Lotus/Types/Gameplay/InfestedMicroplanet/Jobs/DeimosKeyPiecesBounty",
+    "/Lotus/Types/Gameplay/InfestedMicroplanet/Jobs/DeimosExcavateBounty",
+    "/Lotus/Types/Gameplay/InfestedMicroplanet/Jobs/DeimosPurifyBounty"
+];
+
+const microplanetEndlessJobs: readonly string[] = [
+    "/Lotus/Types/Gameplay/InfestedMicroplanet/Jobs/DeimosEndlessAreaDefenseBounty",
+    "/Lotus/Types/Gameplay/InfestedMicroplanet/Jobs/DeimosEndlessExcavateBounty",
+    "/Lotus/Types/Gameplay/InfestedMicroplanet/Jobs/DeimosEndlessPurifyBounty"
+];
+
+const isBeforeNextExpectedWorldStateRefresh = (nowMs: number, thenMs: number): boolean => {
+    return nowMs + 300_000 > thenMs;
+};
+
+const getSortieTime = (day: number): number => {
+    const dayStart = EPOCH + day * 86400000;
+    const date = new Date(dayStart);
+    date.setUTCHours(12);
+    const isDst = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/Toronto",
+        timeZoneName: "short"
+    })
+        .formatToParts(date)
+        .find(part => part.type === "timeZoneName")!
+        .value.includes("DT");
+    return dayStart + (isDst ? 16 : 17) * 3600000;
+};
+
+const pushSyndicateMissions = (
+    worldState: IWorldState,
+    day: number,
+    seed: number,
+    idSuffix: string,
+    syndicateTag: string
+): void => {
+    const nodeOptions: string[] = [...syndicateMissions];
+
+    const rng = new SRng(seed);
+    const nodes: string[] = [];
+    for (let i = 0; i != 6; ++i) {
+        const index = rng.randomInt(0, nodeOptions.length - 1);
+        nodes.push(nodeOptions[index]);
+        nodeOptions.splice(index, 1);
+    }
+
+    const dayStart = getSortieTime(day);
+    const dayEnd = getSortieTime(day + 1);
+    worldState.SyndicateMissions.push({
+        _id: toOid2(((dayStart / 1000) & 0xffffffff).toString(16).padStart(8, "0") + idSuffix, worldState.BuildLabel),
+        Activation: toMongoDate2(dayStart, worldState.BuildLabel),
+        Expiry: toMongoDate2(dayEnd, worldState.BuildLabel),
+        Tag: syndicateTag,
+        Seed: seed,
+        Nodes: nodes
+    });
+};
+
+type TSortieTileset = keyof typeof sortieTilesetMissions;
+
+const pushTilesetModifiers = (modifiers: string[], tileset: TSortieTileset): void => {
+    switch (tileset) {
+        case "GrineerForestTileset":
+            modifiers.push("SORTIE_MODIFIER_HAZARD_FOG");
+            break;
+        case "CorpusShipTileset":
+        case "GrineerGalleonTileset":
+        case "InfestedCorpusShipTileset":
+            modifiers.push("SORTIE_MODIFIER_HAZARD_MAGNETIC");
+            modifiers.push("SORTIE_MODIFIER_HAZARD_FIRE");
+            modifiers.push("SORTIE_MODIFIER_HAZARD_ICE");
+            break;
+        case "CorpusIcePlanetTileset":
+        case "CorpusIcePlanetTilesetCaves":
+            modifiers.push("SORTIE_MODIFIER_HAZARD_COLD");
+            break;
+    }
+};
+
+export const getSortie = (day: number, buildVersion: number): ISortie => {
+    // Seeds featuring CorpusIcePlanet to test seed validation: 14197, 23418, 71281
+    const seed = new SRng(day).randomInt(0, 100_000);
+    logger.trace(`sortie seed: ${seed}`);
+    const rng = new SRng(seed);
+
+    const boss = rng.randomElement(sortieBosses)!;
+    const enemyFaction = sortieBossToFaction[boss];
+
+    const nodes: string[] = [];
+    for (const [key, value] of Object.entries(ExportRegions)) {
+        if (
+            key in sortieTilesets &&
+            (key != "SolNode228" || enemyFaction == "FC_GRINEER") && // PoE only works for grineer enemies
+            sortieFactionToSystemIndexes[enemyFaction].includes(value.systemIndex) &&
+            sortieFactionToFactions[enemyFaction].includes(value.faction!) &&
+            isRegionAvailableIn(key, value, buildVersion)
+        ) {
+            nodes.push(key);
+        }
+    }
+
+    const willHaveAssassination = boss != "SORTIE_BOSS_CORRUPTED_VOR" && rng.randomInt(0, 2) == 2;
+    if (willHaveAssassination) {
+        const index = nodes.indexOf(sortieBossNode[boss]);
+        if (index != -1) {
+            nodes.splice(index, 1);
+        }
+    }
+
+    const selectedNodes: ISortieMission[] = [];
+    const missionTypes = new Set();
+
+    if (enemyFaction == "FC_INFESTATION") {
+        // MT_RETRIEVAL may not be chosen for infested enemies (https://onlyg.it/OpenWF/SpaceNinjaServer/issues/2907)
+        missionTypes.add("MT_RETRIEVAL");
+    }
+
+    for (let i = 0; i < 3; i++) {
+        let randomIndex, node;
+        do {
+            randomIndex = rng.randomInt(0, nodes.length - 1);
+            node = nodes[randomIndex];
+        } while (sortieAssassinationOnlyNodes.indexOf(node) != -1);
+
+        const modifiers = [
+            "SORTIE_MODIFIER_LOW_ENERGY",
+            "SORTIE_MODIFIER_IMPACT",
+            "SORTIE_MODIFIER_SLASH",
+            "SORTIE_MODIFIER_PUNCTURE",
+            "SORTIE_MODIFIER_EXIMUS",
+            "SORTIE_MODIFIER_MAGNETIC",
+            "SORTIE_MODIFIER_CORROSIVE",
+            "SORTIE_MODIFIER_VIRAL",
+            "SORTIE_MODIFIER_ELECTRICITY",
+            "SORTIE_MODIFIER_RADIATION",
+            "SORTIE_MODIFIER_FIRE",
+            "SORTIE_MODIFIER_EXPLOSION",
+            "SORTIE_MODIFIER_FREEZE",
+            "SORTIE_MODIFIER_POISON",
+            "SORTIE_MODIFIER_SECONDARY_ONLY",
+            "SORTIE_MODIFIER_SHOTGUN_ONLY",
+            "SORTIE_MODIFIER_SNIPER_ONLY",
+            "SORTIE_MODIFIER_RIFLE_ONLY",
+            "SORTIE_MODIFIER_BOW_ONLY"
+        ];
+
+        if (i == 2 && willHaveAssassination) {
+            const tileset = sortieTilesets[sortieBossNode[boss] as keyof typeof sortieTilesets] as TSortieTileset;
+            pushTilesetModifiers(modifiers, tileset);
+
+            const modifierType = rng.randomElement(modifiers)!;
+
+            selectedNodes.push({
+                missionType: "MT_ASSASSINATION",
+                modifierType,
+                node: sortieBossNode[boss],
+                tileset
+            });
+            continue;
+        }
+
+        const tileset = sortieTilesets[node as keyof typeof sortieTilesets] as TSortieTileset;
+        pushTilesetModifiers(modifiers, tileset);
+
+        const missionType = rng.randomElement(sortieTilesetMissions[tileset])! as TMissionType;
+
+        if (missionTypes.has(missionType) || missionType == "MT_ASSASSINATION") {
+            i--;
+            continue;
+        }
+
+        modifiers.push("SORTIE_MODIFIER_MELEE_ONLY"); // not an assassination mission, can now push this
+
+        if (missionType != "MT_TERRITORY") {
+            modifiers.push("SORTIE_MODIFIER_HAZARD_RADIATION");
+        }
+
+        modifiers.push(enemyFaction == "FC_CORPUS" ? "SORTIE_MODIFIER_SHIELDS" : "SORTIE_MODIFIER_ARMOR");
+
+        const modifierType = rng.randomElement(modifiers)!;
+
+        selectedNodes.push({
+            missionType,
+            modifierType,
+            node,
+            tileset
+        });
+        nodes.splice(randomIndex, 1);
+        missionTypes.add(missionType);
+    }
+
+    let clientSeed = rng.randomInt(0, 100_000);
+    while (!validateSortieSeed(clientSeed, enemyFaction, selectedNodes)) {
+        clientSeed = rng.randomInt(0, 100_000);
+    }
+
+    const dayStart = getSortieTime(day);
+    const dayEnd = getSortieTime(day + 1);
+    return {
+        _id: { $oid: ((dayStart / 1000) & 0xffffffff).toString(16).padStart(8, "0") + "d4d932c97c0a3acd" },
+        Activation: { $date: { $numberLong: dayStart.toString() } },
+        Expiry: { $date: { $numberLong: dayEnd.toString() } },
+        Reward: "/Lotus/Types/Game/MissionDecks/SortieRewards",
+        Seed: clientSeed,
+        Boss: boss,
+        Variants: selectedNodes
+    };
+};
+
+const SORTIE_FALLBACK_MISSION_TYPES: TMissionType[] = [
+    "MT_EXTERMINATION",
+    "MT_SURVIVAL",
+    "MT_RESCUE",
+    "MT_SABOTAGE",
+    //"MT_CAPTURE",
+    "MT_INTEL",
+    "MT_DEFENSE",
+    "MT_MOBILE_DEFENSE",
+    "MT_TERRITORY",
+    "MT_RETRIEVAL",
+    "MT_HIVE",
+    "MT_EXCAVATE",
+    "MT_ARTIFACT"
+];
+
+const validateSortieSeed = (seed: number, enemyFaction: TFaction, variants: ISortieMission[]): boolean => {
+    const rng = new SRng(seed);
+    for (const variant of variants) {
+        // Gather variant data as the client would
+        let missionType = variant.missionType;
+        const tileset = ExportTilesets[variant.tileset];
+        if (missionType != "MT_ASSASSINATION") {
+            let missionPermutation = tileset.missions[variant.missionType];
+            if (!missionPermutation) {
+                const options = SORTIE_FALLBACK_MISSION_TYPES.filter(missionType => missionType in tileset.missions);
+                missionType = options[rng.randomInt(0, options.length - 1)];
+                missionPermutation = tileset.missions[missionType]!;
+                logger.trace(
+                    `${variant.missionType} not supported by ${variant.tileset}; picking ${missionType} instead`
+                );
+            }
+            if (missionPermutation.enemySpecs?.length) {
+                rng.randomInt(1, missionPermutation.enemySpecs.length);
+            }
+            if (missionPermutation.extraEnemySpecs?.length) {
+                rng.randomInt(1, missionPermutation.extraEnemySpecs.length);
+            }
+            rng.randomFloat(); // difficulty
+        }
+        if (enemyFaction == "FC_INFESTATION" && tileset.faction != "FC_INFESTATION") {
+            // infested enemySpec
+            if (missionType == "MT_DEFENSE" || missionType == "MT_TERRITORY" || missionType == "MT_SURVIVAL") {
+                rng.randomInt(0, 1);
+            } else if (missionType != "MT_EXCAVATE") {
+                rng.randomInt(0, 3);
+            }
+        }
+        const locationTextureIndex =
+            missionType == "MT_ARENA" || missionType == "MT_JUNCTION" ? 0 : rng.randomInt(0, 1);
+
+        // Reject this seed if the data looks bad
+        if (missionType == "MT_RETRIEVAL" && enemyFaction == "FC_INFESTATION") {
+            return false;
+        }
+        if (
+            (variant.tileset == "CorpusIcePlanetTileset" || variant.tileset == "CorpusIcePlanetTilesetCaves") &&
+            locationTextureIndex != 0
+        ) {
+            return false; // For the corpus ice planet tileset, index 1 is an infested corpus ship image, which we don't want.
+        }
+    }
+    return true;
+};
+
+interface IRotatingSeasonChallengePools {
+    daily: readonly string[];
+    weekly: string[];
+    hardWeekly: string[];
+    weeklyPermanent: string[];
+}
+
+export const getSeasonChallengePools = (syndicateTag: string): IRotatingSeasonChallengePools => {
+    const syndicate =
+        getGeneratedNightwaveSyndicate(syndicateTag) ??
+        (syndicateTag in ExportSyndicates ? ExportSyndicates[syndicateTag] : undefined);
+    if (!syndicate) return { daily: [], weekly: [], hardWeekly: [], weeklyPermanent: [] };
+    if (!syndicate.dailyChallenges || !syndicate.weeklyChallenges) {
+        throw new Error(`invalid syndicate tag for nightwave: ${syndicateTag}`);
+    }
+    return {
+        daily: [...syndicate.dailyChallenges],
+        weekly: syndicate.weeklyChallenges.filter(
+            x =>
+                x.startsWith("/Lotus/Types/Challenges/Seasons/Weekly/") &&
+                !x.startsWith("/Lotus/Types/Challenges/Seasons/Weekly/SeasonWeeklyPermanent")
+        ),
+        hardWeekly: syndicate.weeklyChallenges.filter(x => x.startsWith("/Lotus/Types/Challenges/Seasons/WeeklyHard/")),
+        weeklyPermanent: syndicate.weeklyChallenges.filter(x =>
+            x.startsWith("/Lotus/Types/Challenges/Seasons/Weekly/SeasonWeeklyPermanent")
+        )
+    };
+};
+
+const getSeasonDailyChallenge = (pools: IRotatingSeasonChallengePools, day: number): ISeasonChallenge => {
+    const dayStart = EPOCH + day * 86400000;
+    const dayEnd = EPOCH + (day + 3) * 86400000;
+    return {
+        _id: { $oid: "67e1b5ca9d00cb47" + day.toString().padStart(8, "0") },
+        Daily: true,
+        Activation: { $date: { $numberLong: dayStart.toString() } },
+        Expiry: { $date: { $numberLong: dayEnd.toString() } },
+        Challenge: sequentiallyUniqueRandomElement(pools.daily, day, 2, 605732938)!
+    };
+};
+
+const pushSeasonWeeklyChallenge = (
+    activeChallenges: ISeasonChallenge[],
+    pool: string[],
+    nightwaveSeason: number,
+    week: number,
+    id: number
+): void => {
+    if (pool.length > 0) {
+        const weekStart = EPOCH + week * 604800000;
+        const weekEnd = weekStart + 604800000;
+        const challengeId = week * 7 + id;
+        const rng = new SRng(new SRng(challengeId).randomInt(0, 100_000));
+        let challenge: string;
+        do {
+            challenge = rng.randomElement(pool)!;
+        } while (activeChallenges.some(x => x.Challenge == challenge));
+        activeChallenges.push({
+            _id: {
+                $oid:
+                    (nightwaveSeason + 1).toString().padStart(4, "0") +
+                    "bb2d9d00cb47" +
+                    challengeId.toString().padStart(8, "0")
+            },
+            Activation: { $date: { $numberLong: weekStart.toString() } },
+            Expiry: { $date: { $numberLong: weekEnd.toString() } },
+            Challenge: challenge
+        });
+    }
+};
+
+export const pushWeeklyActs = (
+    activeChallenges: ISeasonChallenge[],
+    pools: IRotatingSeasonChallengePools,
+    week: number,
+    nightwaveStartTimestamp: number,
+    nightwaveSeason: number
+): void => {
+    pushSeasonWeeklyChallenge(activeChallenges, pools.weekly, nightwaveSeason, week, 0);
+    pushSeasonWeeklyChallenge(activeChallenges, pools.weekly, nightwaveSeason, week, 1);
+    if (pools.weeklyPermanent.length > 0) {
+        const weekStart = EPOCH + week * unixTimesInMs.week;
+        const weekEnd = weekStart + unixTimesInMs.week;
+        const nightwaveWeekStart = ((): number => {
+            let ts = nightwaveStartTimestamp - EPOCH;
+            ts -= ts % unixTimesInMs.week;
+            return EPOCH + ts;
+        })();
+        const nightwaveWeek = Math.trunc((weekStart - nightwaveWeekStart) / unixTimesInMs.week);
+        const weeklyPermanentIndex = (nightwaveWeek * 3) % pools.weeklyPermanent.length;
+        for (let i = 0; i < 3; i++) {
+            activeChallenges.push({
+                _id: {
+                    $oid:
+                        (nightwaveSeason + 1).toString().padStart(4, "0") +
+                        "b96e9d00cb47" +
+                        (week * 7 + 2 + i).toString().padStart(8, "0")
+                },
+                Activation: { $date: { $numberLong: weekStart.toString() } },
+                Expiry: { $date: { $numberLong: weekEnd.toString() } },
+                Challenge: pools.weeklyPermanent[weeklyPermanentIndex + i]
+            });
+        }
+    } else {
+        pushSeasonWeeklyChallenge(activeChallenges, pools.weekly, nightwaveSeason, week, 2);
+        pushSeasonWeeklyChallenge(activeChallenges, pools.weekly, nightwaveSeason, week, 3);
+        pushSeasonWeeklyChallenge(activeChallenges, pools.weekly, nightwaveSeason, week, 4);
+    }
+    pushSeasonWeeklyChallenge(activeChallenges, pools.hardWeekly, nightwaveSeason, week, 5);
+    pushSeasonWeeklyChallenge(activeChallenges, pools.hardWeekly, nightwaveSeason, week, 6);
+};
+
+const eidolonEpoch = 1391990400;
+const timeOfDayRate = 0.0026670000515878;
+const eidolonCycleDuration = 24 / timeOfDayRate;
+const eidolonHourDuration = eidolonCycleDuration / 24;
+
+const bountyEpoch = eidolonEpoch + 5 * eidolonHourDuration;
+
+const generateXpAmounts = (rng: SRng, stageCount: number, minXp: number, maxXp: number): number[] => {
+    const step = minXp < 1000 ? 1 : 10;
+    const totalDeciXp = rng.randomInt(minXp / step, maxXp / step);
+    const xpAmounts: number[] = [];
+    if (stageCount < 4) {
+        const perStage = Math.ceil(totalDeciXp / stageCount) * step;
+        for (let i = 0; i != stageCount; ++i) {
+            xpAmounts.push(perStage);
+        }
+    } else {
+        const perStage = Math.ceil(Math.round(totalDeciXp * 0.667) / (stageCount - 1)) * step;
+        for (let i = 0; i != stageCount - 1; ++i) {
+            xpAmounts.push(perStage);
+        }
+        xpAmounts.push(Math.ceil(totalDeciXp * 0.332) * step);
+    }
+    return xpAmounts;
+};
+// Test vectors:
+//console.log(generateXpAmounts(new SRng(1337n), 5, 5000, 5000)); // [840, 840, 840, 840, 1660]
+//console.log(generateXpAmounts(new SRng(1337n), 3, 40, 40)); // [14, 14, 14]
+//console.log(generateXpAmounts(new SRng(1337n), 5, 150, 150)); // [25, 25, 25, 25, 50]
+//console.log(generateXpAmounts(new SRng(1337n), 4, 10, 10)); // [2, 2, 2, 4]
+//console.log(generateXpAmounts(new SRng(1337n), 4, 15, 15)); // [4, 4, 4, 5]
+//console.log(generateXpAmounts(new SRng(1337n), 4, 20, 20)); // [5, 5, 5, 7]
+
+export const pushClassicBounties = (
+    syndicateMissions: ISyndicateMissionInfo[],
+    bountyCycle: number,
+    buildVersion: number
+): void => {
+    const table = String.fromCharCode(65 + (bountyCycle % 3));
+    const vaultTable = String.fromCharCode(65 + ((bountyCycle + 1) % 3));
+    const deimosDTable = String.fromCharCode(65 + (bountyCycle % 2));
+
+    const seed = new SRng(bountyCycle).randomInt(0, 100_000);
+    const bountyCycleStart = Math.trunc((bountyEpoch + bountyCycle * eidolonCycleDuration) * 1000);
+    const bountyCycleEnd = Math.trunc(bountyCycleStart + eidolonCycleDuration * 1000);
+
+    if (buildVersion >= gameToBuildVersionInt["22.0.0"]) {
+        const rng = new SRng(seed);
+        const pool = [...eidolonJobs];
+        syndicateMissions.push({
+            _id: {
+                $oid: ((bountyCycleStart / 1000) & 0xffffffff).toString(16).padStart(8, "0") + "0000000000000008"
+            },
+            Activation: { $date: { $numberLong: bountyCycleStart.toString(10) } },
+            Expiry: { $date: { $numberLong: bountyCycleEnd.toString(10) } },
+            Tag: "CetusSyndicate",
+            Seed: seed,
+            Nodes: [],
+            Jobs: [
+                {
+                    jobType: rng.randomElementPop(pool),
+                    rewards: `/Lotus/Types/Game/MissionDecks/EidolonJobMissionRewards/TierATable${table}Rewards`,
+                    // Should be U22.10
+                    ...(buildVersion >= gameToBuildVersionInt["22.13.4"] && {
+                        masteryReq: 0
+                    }),
+                    minEnemyLevel: 5,
+                    maxEnemyLevel: 15,
+                    xpAmounts: generateXpAmounts(rng, 3, 1000, 1500)
+                },
+                {
+                    jobType: rng.randomElementPop(pool),
+                    rewards: `/Lotus/Types/Game/MissionDecks/EidolonJobMissionRewards/TierBTable${table}Rewards`,
+                    ...(buildVersion >= gameToBuildVersionInt["22.13.4"] && {
+                        masteryReq: 1
+                    }),
+                    minEnemyLevel: 10,
+                    maxEnemyLevel: 30,
+                    xpAmounts: generateXpAmounts(rng, 3, 1750, 2250)
+                },
+                {
+                    jobType: rng.randomElementPop(pool),
+                    rewards: `/Lotus/Types/Game/MissionDecks/EidolonJobMissionRewards/TierCTable${table}Rewards`,
+                    ...(buildVersion >= gameToBuildVersionInt["22.13.4"] && {
+                        masteryReq: 2
+                    }),
+                    minEnemyLevel: 20,
+                    maxEnemyLevel: 40,
+                    xpAmounts: generateXpAmounts(rng, 4, 2500, 3000)
+                },
+                {
+                    jobType: rng.randomElementPop(pool),
+                    rewards: `/Lotus/Types/Game/MissionDecks/EidolonJobMissionRewards/TierDTable${table}Rewards`,
+                    ...(buildVersion >= gameToBuildVersionInt["22.13.4"] && {
+                        masteryReq: 3
+                    }),
+                    minEnemyLevel: 30,
+                    maxEnemyLevel: 50,
+                    xpAmounts: generateXpAmounts(rng, 5, 3250, 3750)
+                },
+                {
+                    jobType: rng.randomElementPop(pool),
+                    rewards: `/Lotus/Types/Game/MissionDecks/EidolonJobMissionRewards/TierETable${table}Rewards`,
+                    ...(buildVersion >= gameToBuildVersionInt["22.13.4"] && {
+                        masteryReq: 4
+                    }),
+                    minEnemyLevel: 40,
+                    maxEnemyLevel: 60,
+                    xpAmounts: generateXpAmounts(rng, 5, 4000, 4500)
+                },
+                // U28.1
+                ...(buildVersion >= gameToBuildVersionInt["28.3.0"]
+                    ? [
+                          {
+                              jobType: rng.randomElementPop(pool),
+                              rewards: `/Lotus/Types/Game/MissionDecks/EidolonJobMissionRewards/TierETable${table}Rewards`,
+                              masteryReq: 10,
+                              minEnemyLevel: 100,
+                              maxEnemyLevel: 100,
+                              xpAmounts: [840, 840, 840, 840, 1660]
+                          }
+                      ]
+                    : []),
+                ...(buildVersion >= gameToBuildVersionInt["31.0.0"]
+                    ? [
+                          {
+                              jobType: rng.randomElement(eidolonNarmerJobs),
+                              rewards: `/Lotus/Types/Game/MissionDecks/EidolonJobMissionRewards/NarmerTable${table}Rewards`,
+                              masteryReq: 0,
+                              minEnemyLevel: 50,
+                              maxEnemyLevel: 70,
+                              xpAmounts: generateXpAmounts(rng, 5, 4500, 5000)
+                          }
+                      ]
+                    : [])
+            ]
+        });
+    }
+
+    if (buildVersion >= gameToBuildVersionInt["24.0.0"]) {
+        const rng = new SRng(seed);
+        const pool = [...venusJobs];
+        syndicateMissions.push({
+            _id: {
+                $oid: ((bountyCycleStart / 1000) & 0xffffffff).toString(16).padStart(8, "0") + "0000000000000025"
+            },
+            Activation: { $date: { $numberLong: bountyCycleStart.toString(10) } },
+            Expiry: { $date: { $numberLong: bountyCycleEnd.toString(10) } },
+            Tag: "SolarisSyndicate",
+            Seed: seed,
+            Nodes: [],
+            Jobs: [
+                {
+                    jobType: rng.randomElementPop(pool),
+                    rewards: `/Lotus/Types/Game/MissionDecks/VenusJobMissionRewards/VenusTierATable${table}Rewards`,
+                    masteryReq: 0,
+                    minEnemyLevel: 5,
+                    maxEnemyLevel: 15,
+                    xpAmounts: generateXpAmounts(rng, 3, 1000, 1500)
+                },
+                {
+                    jobType: rng.randomElementPop(pool),
+                    rewards: `/Lotus/Types/Game/MissionDecks/VenusJobMissionRewards/VenusTierBTable${table}Rewards`,
+                    masteryReq: 1,
+                    minEnemyLevel: 10,
+                    maxEnemyLevel: 30,
+                    xpAmounts: generateXpAmounts(rng, 3, 1750, 2250)
+                },
+                {
+                    jobType: rng.randomElementPop(pool),
+                    rewards: `/Lotus/Types/Game/MissionDecks/VenusJobMissionRewards/VenusTierCTable${table}Rewards`,
+                    masteryReq: 2,
+                    minEnemyLevel: 20,
+                    maxEnemyLevel: 40,
+                    xpAmounts: generateXpAmounts(rng, 4, 2500, 3000)
+                },
+                {
+                    jobType: rng.randomElementPop(pool),
+                    rewards: `/Lotus/Types/Game/MissionDecks/VenusJobMissionRewards/VenusTierDTable${table}Rewards`,
+                    masteryReq: 3,
+                    minEnemyLevel: 30,
+                    maxEnemyLevel: 50,
+                    xpAmounts: generateXpAmounts(rng, 5, 3250, 3750)
+                },
+                {
+                    jobType: rng.randomElementPop(pool),
+                    rewards: `/Lotus/Types/Game/MissionDecks/VenusJobMissionRewards/VenusTierETable${table}Rewards`,
+                    masteryReq: 5,
+                    minEnemyLevel: 40,
+                    maxEnemyLevel: 60,
+                    xpAmounts: generateXpAmounts(rng, 5, 4000, 4500)
+                },
+                // U28.1
+                ...(buildVersion >= gameToBuildVersionInt["28.3.0"]
+                    ? [
+                          {
+                              jobType: rng.randomElementPop(pool),
+                              rewards: `/Lotus/Types/Game/MissionDecks/VenusJobMissionRewards/VenusTierETable${table}Rewards`,
+                              masteryReq: 10,
+                              minEnemyLevel: 100,
+                              maxEnemyLevel: 100,
+                              xpAmounts: [840, 840, 840, 840, 1660]
+                          }
+                      ]
+                    : []),
+                ...(buildVersion >= gameToBuildVersionInt["31.0.0"]
+                    ? [
+                          {
+                              jobType: rng.randomElement(venusNarmerJobs),
+                              rewards: "/Lotus/Types/Game/MissionDecks/EidolonJobMissionRewards/NarmerTableBRewards",
+                              masteryReq: 0,
+                              minEnemyLevel: 50,
+                              maxEnemyLevel: 70,
+                              xpAmounts: generateXpAmounts(rng, 5, 4500, 5000)
+                          }
+                      ]
+                    : [])
+            ]
+        });
+    }
+
+    if (buildVersion >= gameToBuildVersionInt["29.0.0"]) {
+        const rng = new SRng(seed);
+        const pool = [...microplanetJobs];
+        syndicateMissions.push({
+            _id: {
+                $oid: ((bountyCycleStart / 1000) & 0xffffffff).toString(16).padStart(8, "0") + "0000000000000002"
+            },
+            Activation: { $date: { $numberLong: bountyCycleStart.toString(10) } },
+            Expiry: { $date: { $numberLong: bountyCycleEnd.toString(10) } },
+            Tag: "EntratiSyndicate",
+            Seed: seed,
+            Nodes: [],
+            Jobs: [
+                {
+                    jobType: rng.randomElementPop(pool),
+                    rewards: `/Lotus/Types/Game/MissionDecks/DeimosMissionRewards/TierATable${table}Rewards`,
+                    masteryReq: 0,
+                    minEnemyLevel: 5,
+                    maxEnemyLevel: 15,
+                    xpAmounts: generateXpAmounts(rng, 3, 12, 18)
+                },
+                {
+                    jobType: rng.randomElementPop(pool),
+                    rewards: `/Lotus/Types/Game/MissionDecks/DeimosMissionRewards/TierCTable${table}Rewards`,
+                    masteryReq: 1,
+                    minEnemyLevel: 15,
+                    maxEnemyLevel: 25,
+                    xpAmounts: generateXpAmounts(rng, 3, 24, 36)
+                },
+                {
+                    jobType: rng.randomElement(microplanetEndlessJobs),
+                    rewards: `/Lotus/Types/Game/MissionDecks/DeimosMissionRewards/TierBTable${table}Rewards`,
+                    masteryReq: 5,
+                    minEnemyLevel: 25,
+                    maxEnemyLevel: 30,
+                    endless: true,
+                    xpAmounts: [14, 14, 14]
+                },
+                {
+                    jobType: rng.randomElementPop(pool),
+                    rewards: `/Lotus/Types/Game/MissionDecks/DeimosMissionRewards/TierDTable${deimosDTable}Rewards`,
+                    masteryReq: 2,
+                    minEnemyLevel: 30,
+                    maxEnemyLevel: 40,
+                    xpAmounts: generateXpAmounts(rng, 4, 72, 88)
+                },
+                {
+                    jobType: rng.randomElementPop(pool),
+                    rewards: `/Lotus/Types/Game/MissionDecks/DeimosMissionRewards/TierETableARewards`,
+                    masteryReq: 3,
+                    minEnemyLevel: 40,
+                    maxEnemyLevel: 60,
+                    xpAmounts: generateXpAmounts(rng, 5, 115, 135)
+                },
+                {
+                    jobType: rng.randomElementPop(pool),
+                    rewards: `/Lotus/Types/Game/MissionDecks/DeimosMissionRewards/TierETableARewards`,
+                    masteryReq: 10,
+                    minEnemyLevel: 100,
+                    maxEnemyLevel: 100,
+                    xpAmounts: [25, 25, 25, 25, 50]
+                },
+                {
+                    rewards: `/Lotus/Types/Game/MissionDecks/DeimosMissionRewards/VaultBountyTierATable${vaultTable}Rewards`,
+                    masteryReq: 5,
+                    minEnemyLevel: 30,
+                    maxEnemyLevel: 40,
+                    xpAmounts: [2, 2, 2, 4],
+                    locationTag: "ChamberB",
+                    isVault: true
+                },
+                {
+                    rewards: `/Lotus/Types/Game/MissionDecks/DeimosMissionRewards/VaultBountyTierBTable${vaultTable}Rewards`,
+                    masteryReq: 5,
+                    minEnemyLevel: 40,
+                    maxEnemyLevel: 50,
+                    xpAmounts: [4, 4, 4, 5],
+                    locationTag: "ChamberA",
+                    isVault: true
+                },
+                {
+                    rewards: `/Lotus/Types/Game/MissionDecks/DeimosMissionRewards/VaultBountyTierCTable${vaultTable}Rewards`,
+                    masteryReq: 5,
+                    minEnemyLevel: 50,
+                    maxEnemyLevel: 60,
+                    xpAmounts: [5, 5, 5, 7],
+                    locationTag: "ChamberC",
+                    isVault: true
+                }
+            ]
+        });
+    }
+};
+
+const birthdays: number[] = [
+    1, // Kaya
+    45, // Lettie
+    74, // Minerva (MinervaVelemirDialogue_rom.dialogue)
+    143, // Amir
+    166, // Flare
+    191, // Aoi
+    306, // Eleanor
+    307, // Arthur
+    338, // Quincy
+    355 // Velimir (MinervaVelemirDialogue_rom.dialogue)
+];
+
+// Use the same private calendar clock for progress, reward grants, and the advertised season.
+export const getCurrentCalendarSeason = (timeMs = getWorldStateTime().timeMs): ICalendarSeason => {
+    const calendar = getEventClock("calendar", timeMs);
+    const season = getCalendarSeason(calendar.index);
+    season.Activation = { $date: { $numberLong: (calendar.expiryMs - unixTimesInMs.week).toString() } };
+    season.Expiry = { $date: { $numberLong: calendar.expiryMs.toString() } };
+    return season;
+};
+
+export const getCalendarSeason = (week: number): ICalendarSeason => {
+    const seasonIndex = week % 4;
+    const seasonDay1 = [1, 91, 182, 274][seasonIndex];
+    const seasonDay91 = seasonDay1 + 90;
+    const eventDays: ICalendarDay[] = [];
+    for (const day of birthdays) {
+        if (day < seasonDay1) {
+            continue;
+        }
+        if (day >= seasonDay91) {
+            break;
+        }
+        logger.trace(`birthday on day ${day}`);
+        eventDays.push({ day, events: [] }); // This is how CET_PLOT looks in worldState as of around 38.5.0
+    }
+    const rng = new SRng(new SRng(week).randomInt(0, 100_000));
+    const challenges = [
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillEnemiesEasy",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillEnemiesMedium",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillEnemiesHard",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillEnemiesWithMeleeEasy",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillEnemiesWithMeleeMedium",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillEnemiesWithMeleeHard",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillEnemiesWithAbilitiesEasy",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillEnemiesWithAbilitiesMedium",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillEnemiesWithAbilitiesHard",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarDestroyPropsEasy",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarDestroyPropsMedium",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarDestroyPropsHard",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillEximusEasy",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillEximusMedium",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillEximusHard",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillScaldraEnemiesEasy",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillScaldraEnemiesMedium",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillScaldraEnemiesHard",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillScaldraEnemiesWithAbilitiesEasy",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillScaldraEnemiesWithAbilitiesMedium",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillScaldraEnemiesWithAbilitiesHard",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillTankHard",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillScaldraEnemiesWithMeleeEasy",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillScaldraEnemiesWithMeleeMedium",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillScaldraEnemiesWithMeleeHard",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillTechrotEnemiesEasy",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillTechrotEnemiesMedium",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillTechrotEnemiesHard",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillTechrotEnemiesWithAbilitiesEasy",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillTechrotEnemiesWithAbilitiesMedium",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillTechrotEnemiesWithAbilitiesHard",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillTechrotEnemiesWithMeleeEasy",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillTechrotEnemiesWithMeleeMedium",
+        "/Lotus/Types/Challenges/Calendar1999/CalendarKillTechrotEnemiesWithMeleeHard"
+    ];
+    const rewardRanges: number[] = [];
+    const upgradeRanges: number[] = [];
+    for (let i = 0; i != 6; ++i) {
+        const chunkDay1 = seasonDay1 + i * 15;
+        const chunkDay13 = chunkDay1 - 1 + 13;
+        let challengeDay: number;
+        do {
+            challengeDay = rng.randomInt(chunkDay1, chunkDay13);
+        } while (birthdays.indexOf(challengeDay) != -1);
+
+        let challengeIndex;
+        let challenge;
+        do {
+            challengeIndex = rng.randomInt(0, challenges.length - 1);
+            challenge = challenges[challengeIndex];
+        } while (i < 2 && !challenge.endsWith("Easy")); // First 2 challenges should be easy
+        challenges.splice(challengeIndex, 1);
+
+        logger.trace(`challenge on day ${challengeDay}`);
+        eventDays.push({
+            day: challengeDay,
+            events: [{ type: "CET_CHALLENGE", challenge }]
+        });
+
+        rewardRanges.push(challengeDay);
+        if (i == 0 || i == 3 || i == 5) {
+            upgradeRanges.push(challengeDay);
+        }
+    }
+    rewardRanges.push(seasonDay91);
+    upgradeRanges.push(seasonDay91);
+
+    const rewards = [
+        "/Lotus/StoreItems/Types/Items/MiscItems/UtilityUnlocker",
+        "/Lotus/StoreItems/Types/Recipes/Components/FormaAuraBlueprint",
+        "/Lotus/StoreItems/Types/Recipes/Components/FormaBlueprint",
+        "/Lotus/StoreItems/Types/Recipes/Components/WeaponUtilityUnlockerBlueprint",
+        "/Lotus/StoreItems/Types/Items/MiscItems/WeaponMeleeArcaneUnlocker",
+        "/Lotus/StoreItems/Types/Items/MiscItems/WeaponSecondaryArcaneUnlocker",
+        "/Lotus/StoreItems/Types/Items/MiscItems/WeaponPrimaryArcaneUnlocker",
+        "/Lotus/StoreItems/Upgrades/Mods/FusionBundles/CircuitSilverSteelPathFusionBundle",
+        "/Lotus/StoreItems/Types/BoosterPacks/CalendarRivenPack",
+        "/Lotus/Types/StoreItems/Packages/Calendar/CalendarKuvaBundleSmall",
+        "/Lotus/Types/StoreItems/Packages/Calendar/CalendarKuvaBundleLarge",
+        "/Lotus/StoreItems/Types/BoosterPacks/CalendarArtifactPack",
+        "/Lotus/StoreItems/Types/BoosterPacks/CalendarMajorArtifactPack",
+        "/Lotus/Types/StoreItems/Boosters/AffinityBooster3DayStoreItem",
+        "/Lotus/Types/StoreItems/Boosters/ModDropChanceBooster3DayStoreItem",
+        "/Lotus/Types/StoreItems/Boosters/ResourceDropChance3DayStoreItem",
+        "/Lotus/StoreItems/Types/Items/MiscItems/Forma",
+        "/Lotus/StoreItems/Types/Recipes/Components/OrokinCatalystBlueprint",
+        "/Lotus/StoreItems/Types/Recipes/Components/OrokinReactorBlueprint",
+        "/Lotus/StoreItems/Types/Items/MiscItems/WeaponUtilityUnlocker",
+        "/Lotus/Types/StoreItems/Packages/Calendar/CalendarVosforPack",
+        "/Lotus/StoreItems/Types/Gameplay/NarmerSorties/ArchonCrystalOrange",
+        "/Lotus/StoreItems/Types/Gameplay/NarmerSorties/ArchonCrystalNira",
+        "/Lotus/StoreItems/Types/Gameplay/NarmerSorties/ArchonCrystalGreen",
+        "/Lotus/StoreItems/Types/Gameplay/NarmerSorties/ArchonCrystalBoreal",
+        "/Lotus/StoreItems/Types/Gameplay/NarmerSorties/ArchonCrystalAmar",
+        "/Lotus/StoreItems/Types/Gameplay/NarmerSorties/ArchonCrystalViolet"
+    ];
+    for (let i = 0; i != rewardRanges.length - 1; ++i) {
+        const events: ICalendarEvent[] = [];
+        for (let j = 0; j != 2; ++j) {
+            const rewardIndex = rng.randomInt(0, rewards.length - 1);
+            events.push({ type: "CET_REWARD", reward: rewards[rewardIndex] });
+            rewards.splice(rewardIndex, 1);
+        }
+
+        logger.trace(`trying to fit rewards between day ${rewardRanges[i]} and ${rewardRanges[i + 1]}`);
+        let day: number;
+        do {
+            day = rng.randomInt(rewardRanges[i] + 1, rewardRanges[i + 1] - 1);
+        } while (eventDays.find(x => x.day == day));
+        eventDays.push({ day, events });
+    }
+
+    const upgradesByHexMember = [
+        [
+            "/Lotus/Upgrades/Calendar/AttackAndMovementSpeedOnCritMelee",
+            "/Lotus/Upgrades/Calendar/ElectricalDamageOnBulletJump",
+            "/Lotus/Upgrades/Calendar/ElectricDamagePerDistance",
+            "/Lotus/Upgrades/Calendar/ElectricStatusDamageAndChance",
+            "/Lotus/Upgrades/Calendar/OvershieldCap",
+            "/Lotus/Upgrades/Calendar/SpeedBuffsWhenAirborne"
+        ],
+        [
+            "/Lotus/Upgrades/Calendar/AbilityStrength",
+            "/Lotus/Upgrades/Calendar/EnergyOrbToAbilityRange",
+            "/Lotus/Upgrades/Calendar/MagnetStatusPull",
+            "/Lotus/Upgrades/Calendar/MagnitizeWithinRangeEveryXCasts",
+            "/Lotus/Upgrades/Calendar/PowerStrengthAndEfficiencyPerEnergySpent",
+            "/Lotus/Upgrades/Calendar/SharedFreeAbilityEveryXCasts"
+        ],
+        [
+            "/Lotus/Upgrades/Calendar/EnergyWavesOnCombo",
+            "/Lotus/Upgrades/Calendar/FinisherChancePerComboMultiplier",
+            "/Lotus/Upgrades/Calendar/MeleeAttackSpeed",
+            "/Lotus/Upgrades/Calendar/MeleeCritChance",
+            "/Lotus/Upgrades/Calendar/MeleeSlideFowardMomentumOnEnemyHit",
+            "/Lotus/Upgrades/Calendar/RadialJavelinOnHeavy"
+        ],
+        [
+            "/Lotus/Upgrades/Calendar/Armor",
+            "/Lotus/Upgrades/Calendar/CloneActiveCompanionForEnergySpent",
+            "/Lotus/Upgrades/Calendar/CompanionDamage",
+            "/Lotus/Upgrades/Calendar/CompanionsBuffNearbyPlayer",
+            "/Lotus/Upgrades/Calendar/CompanionsRadiationChance",
+            "/Lotus/Upgrades/Calendar/RadiationProcOnTakeDamage",
+            "/Lotus/Upgrades/Calendar/ReviveEnemyAsSpectreOnKill"
+        ],
+        [
+            "/Lotus/Upgrades/Calendar/EnergyOrbsGrantShield",
+            "/Lotus/Upgrades/Calendar/EnergyRestoration",
+            "/Lotus/Upgrades/Calendar/ExplodingHealthOrbs",
+            "/Lotus/Upgrades/Calendar/GenerateOmniOrbsOnWeakKill",
+            "/Lotus/Upgrades/Calendar/HealingEffects",
+            "/Lotus/Upgrades/Calendar/OrbsDuplicateOnPickup"
+        ],
+        [
+            "/Lotus/Upgrades/Calendar/BlastEveryXShots",
+            "/Lotus/Upgrades/Calendar/GasChanceToPrimaryAndSecondary",
+            "/Lotus/Upgrades/Calendar/GuidingMissilesChance",
+            "/Lotus/Upgrades/Calendar/MagazineCapacity",
+            "/Lotus/Upgrades/Calendar/PunchToPrimary",
+            "/Lotus/Upgrades/Calendar/RefundBulletOnStatusProc",
+            "/Lotus/Upgrades/Calendar/StatusChancePerAmmoSpent"
+        ]
+    ];
+    for (let i = 0; i != upgradeRanges.length - 1; ++i) {
+        // Pick 3 unique hex members
+        const hexMembersPickedForThisDay: number[] = [];
+        for (let j = 0; j != 3; ++j) {
+            let hexMemberIndex: number;
+            do {
+                hexMemberIndex = rng.randomInt(0, upgradesByHexMember.length - 1);
+            } while (hexMembersPickedForThisDay.indexOf(hexMemberIndex) != -1);
+            hexMembersPickedForThisDay.push(hexMemberIndex);
+        }
+        hexMembersPickedForThisDay.sort(); // Always present them in the same order
+
+        // For each hex member, pick an upgrade that was not yet picked this season.
+        const events: ICalendarEvent[] = [];
+        for (const hexMemberIndex of hexMembersPickedForThisDay) {
+            const upgrades = upgradesByHexMember[hexMemberIndex];
+            const upgradeIndex = rng.randomInt(0, upgrades.length - 1);
+            events.push({ type: "CET_UPGRADE", upgrade: upgrades[upgradeIndex] });
+            upgrades.splice(upgradeIndex, 1);
+        }
+
+        logger.trace(`trying to fit upgrades between day ${upgradeRanges[i]} and ${upgradeRanges[i + 1]}`);
+        let day: number;
+        do {
+            day = rng.randomInt(upgradeRanges[i] + 1, upgradeRanges[i + 1] - 1);
+        } while (eventDays.find(x => x.day == day));
+        eventDays.push({ day, events });
+    }
+
+    eventDays.sort((a, b) => a.day - b.day);
+
+    const weekStart = EPOCH + week * 604800000;
+    const weekEnd = weekStart + 604800000;
+    return {
+        Activation: { $date: { $numberLong: weekStart.toString() } },
+        Expiry: { $date: { $numberLong: weekEnd.toString() } },
+        Days: eventDays,
+        Season: (["CST_WINTER", "CST_SPRING", "CST_SUMMER", "CST_FALL"] as const)[seasonIndex],
+        YearIteration: Math.trunc(week / 4),
+        Version: 19,
+        UpgradeAvaliabilityRequirements: ["/Lotus/Upgrades/Calendar/1999UpgradeApplicationRequirement"]
+    };
+};
+
+// Not very faithful, but to avoid the same node coming up back-to-back (which is not valid), I've split these into 2 arrays which we're alternating between.
+
+const voidStormMissions = {
+    VoidT1: [
+        "CrewBattleNode519",
+        "CrewBattleNode518",
+        "CrewBattleNode515",
+        "CrewBattleNode503",
+        "CrewBattleNode509",
+        "CrewBattleNode522",
+        "CrewBattleNode511",
+        "CrewBattleNode512"
+    ],
+    VoidT2: ["CrewBattleNode501", "CrewBattleNode534", "CrewBattleNode530", "CrewBattleNode535", "CrewBattleNode533"],
+    VoidT3: ["CrewBattleNode521", "CrewBattleNode516", "CrewBattleNode524", "CrewBattleNode525"],
+    VoidT4: [
+        "CrewBattleNode555",
+        "CrewBattleNode553",
+        "CrewBattleNode554",
+        "CrewBattleNode539",
+        "CrewBattleNode531",
+        "CrewBattleNode527",
+        "CrewBattleNode542",
+        "CrewBattleNode538",
+        "CrewBattleNode543",
+        "CrewBattleNode536",
+        "CrewBattleNode550",
+        "CrewBattleNode529"
+    ]
+} as const;
+
+const voidStormLookbehind = {
+    VoidT1: 3,
+    VoidT2: 1,
+    VoidT3: 1,
+    VoidT4: 3
+} as const;
+
+const pushVoidStorms = (arr: IVoidStorm[], hour: number): void => {
+    const activation = hour * unixTimesInMs.hour + 40 * unixTimesInMs.minute;
+    const expiry = activation + 90 * unixTimesInMs.minute;
+    let accum = 0;
+    const tierIdx = { VoidT1: hour * 2, VoidT2: hour, VoidT3: hour, VoidT4: hour * 2 };
+    for (const tier of ["VoidT1", "VoidT1", "VoidT2", "VoidT3", "VoidT4", "VoidT4"] as const) {
+        arr.push({
+            _id: {
+                $oid:
+                    ((activation / 1000) & 0xffffffff).toString(16).padStart(8, "0") +
+                    "0321e89b" +
+                    (accum++).toString().padStart(8, "0")
+            },
+            Node: sequentiallyUniqueRandomElement(
+                voidStormMissions[tier],
+                tierIdx[tier]++,
+                voidStormLookbehind[tier],
+                2051969264
+            )!,
+            Activation: { $date: { $numberLong: activation.toString() } },
+            Expiry: { $date: { $numberLong: expiry.toString() } },
+            ActiveMissionTier: tier
+        });
+    }
+};
+
+interface ITimeConstraint {
+    name: string;
+    isValidTime: (timeSecs: number) => boolean;
+    getIdealTimeBefore: (timeSecs: number) => number;
+}
+
+const eidolonDayConstraint: ITimeConstraint = {
+    name: "eidolon day",
+    isValidTime: (timeSecs: number): boolean => {
+        const eidolonCycle = Math.trunc((timeSecs - eidolonEpoch) / eidolonCycleDuration);
+        const eidolonCycleStart = eidolonEpoch + eidolonCycle * eidolonCycleDuration;
+        const hour = 24 * (((timeSecs - eidolonEpoch) % eidolonCycleDuration) / eidolonCycleDuration);
+        // const isDay = hour > 5 && hour < 21.9;
+        if (hour > 5) {
+            const eidolonCycleNightStart = eidolonCycleStart + 21.9 * eidolonHourDuration;
+            return !isBeforeNextExpectedWorldStateRefresh(timeSecs * 1000, eidolonCycleNightStart * 1000);
+        }
+        return false;
+    },
+    getIdealTimeBefore: (timeSecs: number): number => {
+        const eidolonCycle = Math.trunc((timeSecs - eidolonEpoch) / eidolonCycleDuration);
+        const eidolonCycleStart = eidolonEpoch + eidolonCycle * eidolonCycleDuration;
+        const hour = 24 * (((timeSecs - eidolonEpoch) % eidolonCycleDuration) / eidolonCycleDuration);
+        if (hour > 5) {
+            return Math.trunc(eidolonCycleStart + 5 * eidolonHourDuration); // Today's morning
+        } else {
+            return Math.trunc(eidolonCycleStart - eidolonCycleDuration + 5 * eidolonHourDuration); // Yesterday's morning
+        }
+    }
+};
+
+const eidolonNightConstraint: ITimeConstraint = {
+    name: "eidolon night",
+    isValidTime: (timeSecs: number): boolean => {
+        const eidolonCycle = Math.trunc((timeSecs - eidolonEpoch) / eidolonCycleDuration);
+        const eidolonCycleStart = eidolonEpoch + eidolonCycle * eidolonCycleDuration;
+        const hour = 24 * (((timeSecs - eidolonEpoch) % eidolonCycleDuration) / eidolonCycleDuration);
+        if (hour > 5) {
+            const eidolonCycleNightStart = eidolonCycleStart + 21.9 * eidolonHourDuration;
+            return timeSecs >= eidolonCycleNightStart;
+        } else {
+            const eidolonCycleDayStart = eidolonCycleStart + 5 * eidolonHourDuration;
+            return !isBeforeNextExpectedWorldStateRefresh(timeSecs * 1000, eidolonCycleDayStart * 1000);
+        }
+    },
+    getIdealTimeBefore: (timeSecs: number): number => {
+        const eidolonCycle = Math.trunc((timeSecs - eidolonEpoch) / eidolonCycleDuration);
+        const eidolonCycleStart = eidolonEpoch + eidolonCycle * eidolonCycleDuration;
+        const eidolonCycleNightStart = eidolonCycleStart + 21.9 * eidolonHourDuration;
+        if (eidolonCycleNightStart > timeSecs) {
+            // Night hasn't started yet, but we need to return a time in the past.
+            return Math.trunc(eidolonCycleNightStart - eidolonCycleDuration);
+        }
+        return Math.trunc(eidolonCycleNightStart);
+    }
+};
+
+const venusColdConstraint: ITimeConstraint = {
+    name: "venus cold",
+    isValidTime: (timeSecs: number): boolean => {
+        const vallisEpoch = 1541837628;
+        const vallisCycle = Math.trunc((timeSecs - vallisEpoch) / 1600);
+        const vallisCycleStart = vallisEpoch + vallisCycle * 1600;
+        const vallisCycleEnd = vallisCycleStart + 1600;
+        const vallisCycleColdStart = vallisCycleStart + 400;
+        return (
+            timeSecs >= vallisCycleColdStart &&
+            !isBeforeNextExpectedWorldStateRefresh(timeSecs * 1000, vallisCycleEnd * 1000)
+        );
+    },
+    getIdealTimeBefore: (timeSecs: number): number => {
+        const vallisEpoch = 1541837628;
+        const vallisCycle = Math.trunc((timeSecs - vallisEpoch) / 1600);
+        const vallisCycleStart = vallisEpoch + vallisCycle * 1600;
+        const vallisCycleColdStart = vallisCycleStart + 400;
+        if (vallisCycleColdStart > timeSecs) {
+            // Cold hasn't started yet, but we need to return a time in the past.
+            return vallisCycleColdStart - 1600;
+        }
+        return vallisCycleColdStart;
+    }
+};
+
+const venusWarmConstraint: ITimeConstraint = {
+    name: "venus warm",
+    isValidTime: (timeSecs: number): boolean => {
+        const vallisEpoch = 1541837628;
+        const vallisCycle = Math.trunc((timeSecs - vallisEpoch) / 1600);
+        const vallisCycleStart = vallisEpoch + vallisCycle * 1600;
+        const vallisCycleColdStart = vallisCycleStart + 400;
+        return !isBeforeNextExpectedWorldStateRefresh(timeSecs * 1000, vallisCycleColdStart * 1000);
+    },
+    getIdealTimeBefore: (timeSecs: number): number => {
+        const vallisEpoch = 1541837628;
+        const vallisCycle = Math.trunc((timeSecs - vallisEpoch) / 1600);
+        const vallisCycleStart = vallisEpoch + vallisCycle * 1600;
+        return vallisCycleStart;
+    }
+};
+
+const getIdealTimeSatsifyingConstraints = (constraints: ITimeConstraint[]): number => {
+    let timeSecs = Math.trunc(Date.now() / 1000);
+    let allGood;
+    do {
+        allGood = true;
+        for (const constraint of constraints) {
+            if (!constraint.isValidTime(timeSecs)) {
+                logger.trace(`${constraint.name} is not happy with ${timeSecs}`);
+                const prevTimeSecs = timeSecs;
+                const suggestion = constraint.getIdealTimeBefore(timeSecs);
+                timeSecs = suggestion;
+                do {
+                    timeSecs += 60;
+                    if (timeSecs >= prevTimeSecs || !constraint.isValidTime(timeSecs)) {
+                        timeSecs = suggestion; // Can't find a compromise; just take the suggestion and try to compromise on another constraint.
+                        break;
+                    }
+                } while (!constraints.every(constraint => constraint.isValidTime(timeSecs)));
+                allGood = false;
+                break;
+            }
+        }
+    } while (!allGood);
+    return timeSecs;
+};
+
+const pushVoidTraderOffer = (vt: IVoidTrader, item: IVoidTraderOffer): void => {
+    if (!vt.Manifest.some(existing => existing.ItemType == item.ItemType)) {
+        vt.Manifest.push(item);
+    }
+};
+
+const mainSyndicateTags = [
+    "ArbitersSyndicate",
+    "CephalonSudaSyndicate",
+    "NewLokaSyndicate",
+    "PerrinSyndicate",
+    "RedVeilSyndicate",
+    "SteelMeridianSyndicate"
+] as const;
+
+const isMainSyndicateModOffer = (storeItem: string): boolean => {
+    return storeItem.includes("/Upgrades/Mods/Syndicate/") || /\/Powersuits\/.*AugmentCard$/.test(storeItem);
+};
+
+const pushMainSyndicateModsToBaro = (vt: IVoidTrader): void => {
+    for (const syndicateTag of mainSyndicateTags) {
+        const syndicate = ExportSyndicates[syndicateTag];
+        for (const favour of syndicate.favours) {
+            if (!isMainSyndicateModOffer(favour.storeItem)) continue;
+            pushVoidTraderOffer(vt, {
+                ItemType: favour.storeItem,
+                PrimePrice: 75,
+                RegularPrice: favour.creditsCost || 25_000
+            });
+        }
+    }
+};
+
+const fullyStockBaro = (vt: IVoidTrader, buildVersion: number): void => {
+    const tempManifest: IBaroDataTradeOffer[] = [];
+    for (const item of baro.evilBaro) {
+        tempManifest.push(item);
+    }
+    for (const armorSet of baro.armorSets) {
+        if (armorSet.bundle) {
+            tempManifest.push(armorSet.bundle);
+        }
+        tempManifest.push(...armorSet.items);
+    }
+    for (const item of baro.rest) {
+        tempManifest.push(item);
+    }
+    for (const item of baro.evergreen) {
+        tempManifest.push(item);
+    }
+    vt.Manifest.push(
+        ...tempManifest
+            .filter(({ minBuildVersionInt }) => buildVersion >= minBuildVersionInt)
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            .map(({ minBuildVersionInt, ...offer }) => offer)
+    );
+    for (const item of privateBaroExtraStock) pushVoidTraderOffer(vt, item);
+    pushMainSyndicateModsToBaro(vt);
+};
+
+const getVarziaRotation = (week: number, buildVersion: number): string => {
+    const seed = new SRng(week).randomInt(0, 100_000);
+    const rng = new SRng(seed);
+    const [itemType, rotation] = rng.randomElement(Object.entries(varzia.primeDualPacks))!;
+    if (buildVersion < rotation.minBuildVersionInt) {
+        return itemType;
+    } else {
+        return "/Lotus/StoreItems/Types/StoreItems/Packages/MegaPrimeVault/LastChanceItemC";
+    }
+};
+
+const getVarziaManifest = (dualPack: string, buildVersion: number): IPrimeVaultTraderOffer[] => {
+    const rotationManifest = varzia.primeDualPacks[dualPack];
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (!rotationManifest || buildVersion < rotationManifest.minBuildVersionInt) {
+        return [];
+    }
+    const mainPack = [{ ItemType: dualPack, PrimePrice: 10 }];
+    const singlePacks: IPrimeVaultTraderOffer[] = [];
+    const vanguardRelics: IPrimeVaultTraderOffer[] = [];
+    const items: IPrimeVaultTraderOffer[] = [];
+    const bobbleHeads: IPrimeVaultTraderOffer[] = [];
+
+    if (config.worldState?.vanguardVaultRelics && buildVersion >= gameToBuildVersionInt["41.0.0"]) {
+        vanguardRelics.push(...varzia.vanguardVaultRelics);
+    }
+
+    for (const singlePackType of rotationManifest.SinglePacks) {
+        singlePacks.push({ ItemType: singlePackType, PrimePrice: 6 });
+
+        const sp = varzia.primeSinglePacks[singlePackType];
+        items.push(...sp.Items);
+        sp.BobbleHeads.forEach(bobbleHead => {
+            bobbleHeads.push({ ItemType: bobbleHead, PrimePrice: 1 });
+        });
+    }
+
+    const relics = rotationManifest.Relics.map(relic => ({ ItemType: relic, RegularPrice: 1 }));
+
+    return [singlePacks[0], ...mainPack, singlePacks[1], ...vanguardRelics, ...items, ...bobbleHeads, ...relics];
+};
+
+const getAllVarziaManifests = (buildVersion: number): IPrimeVaultTraderOffer[] => {
+    const dualPacks: IPrimeVaultTraderOffer[] = [];
+    const singlePacks: IPrimeVaultTraderOffer[] = [];
+    const vanguardRelics: IPrimeVaultTraderOffer[] = [];
+    const items: IPrimeVaultTraderOffer[] = [];
+    const bobbleHeads: IPrimeVaultTraderOffer[] = [];
+    const relics: IPrimeVaultTraderOffer[] = [];
+
+    const singlePackSet = new Set<string>();
+    const itemsSet = new Set<string>();
+    const bobbleHeadsSet = new Set<string>();
+
+    if (config.worldState?.vanguardVaultRelics && buildVersion >= gameToBuildVersionInt["41.0.0"]) {
+        vanguardRelics.push(...varzia.vanguardVaultRelics);
+    }
+
+    Object.entries(varzia.primeDualPacks)
+        .filter(([_, dualPack]) => buildVersion >= dualPack.minBuildVersionInt)
+        .forEach(([dualPackItemType, dualPack]) => {
+            dualPacks.push({ ItemType: dualPackItemType, PrimePrice: 10 });
+
+            dualPack.SinglePacks.forEach(singlePackKey => {
+                if (!singlePackSet.has(singlePackKey)) {
+                    singlePackSet.add(singlePackKey);
+                    singlePacks.push({ ItemType: singlePackKey, PrimePrice: 6 });
+                }
+
+                const sp = varzia.primeSinglePacks[singlePackKey];
+
+                sp.Items.forEach(item => {
+                    if (!itemsSet.has(item.ItemType)) {
+                        itemsSet.add(item.ItemType);
+                        items.push(item);
+                    }
+                });
+
+                sp.BobbleHeads.forEach(bobbleHead => {
+                    if (!bobbleHeadsSet.has(bobbleHead)) {
+                        bobbleHeadsSet.add(bobbleHead);
+                        bobbleHeads.push({ ItemType: bobbleHead, PrimePrice: 1 });
+                    }
+                });
+            });
+
+            relics.push(...dualPack.Relics.map(relic => ({ ItemType: relic, RegularPrice: 1 })));
+        });
+
+    return [...dualPacks, ...vanguardRelics, ...singlePacks, ...items, ...bobbleHeads, ...relics];
+};
+
+const getRawVarziaItemType = (itemType: string): string => {
+    return itemType.replace("/Lotus/StoreItems/", "/Lotus/");
+};
+
+const addVarziaItemAndBundleComponents = (items: Set<string>, itemType: string): void => {
+    const rawItemType = getRawVarziaItemType(itemType);
+    if (items.has(rawItemType)) {
+        return;
+    }
+
+    items.add(rawItemType);
+    items.add(itemType);
+    items.add(toStoreItem(rawItemType));
+
+    const bundles = ExportBundles as Record<string, IBundle | undefined>;
+    const bundle = bundles[itemType] ?? bundles[rawItemType];
+    if (!bundle) {
+        return;
+    }
+
+    for (const component of bundle.components) {
+        addVarziaItemAndBundleComponents(items, component.typeName);
+    }
+};
+
+const getExistingVarziaItemSet = (buildLabel: string): Set<string> => {
+    const items = new Set<string>();
+    for (const offer of varzia.evergreen) {
+        addVarziaItemAndBundleComponents(items, offer.ItemType);
+    }
+    for (const offer of getAllVarziaManifests(buildVersionToInt(buildLabel))) {
+        addVarziaItemAndBundleComponents(items, offer.ItemType);
+    }
+    return items;
+};
+
+const getPrimeAccessExportHaystack = (typeName: string, item: TPrimeAccessExportEntry): string => {
+    return `${typeName} ${typeof item.name == "string" ? item.name : ""} ${
+        typeof item.description == "string" ? item.description : ""
+    }`;
+};
+
+const privatePrimeAccessDeniedPattern =
+    /PrimeVault|MegaPrimeVault|VoidProjection|Projection|Relic|Blueprint|PrimeBucks|PrimeToken|Ducats|Booster|Random|LoginReward|LastChance|Quest|Research|Component|Resource|PrimeTrader|Twitch|Amazon|Iridos|Verv|FanChannel|ColourPicker|ColorPack|PrimeDay/i;
+
+const privatePrimeAccessCustomPathPattern =
+    /\/(Scarves|Effects|Liset|MeleeDangles|Operator|Sigils|Crowns|Armor\/Prime[^/]*|Sentinels\/(Masks|Tails|Wings)|Kubrows|Catbrows)\//i;
+
+const privatePrimeAccessCustomDeniedPattern =
+    /WarframeDefaults|DefaultSkin|DefaultHelmet|PrimeSkin|PrimeHelmet|PrimeDefault|PrimeTrader|Twitch|Amazon|Iridos|Verv|FanChannel|ColourPicker|ColorPack|PrimeDay/i;
+
+const privatePrimeAccessCustomBonusPattern = /ProteaPrimeAltHelmet|Chronorum|PrimeSevagothHaloCrown|Maginav/i;
+
+const privatePrimeAccessFlavourPathPattern =
+    /\/Types\/StoreItems\/AvatarImages\/Primes\/|\/Types\/Items\/Titles\/Title[^/]*Prime$|\/Types\/Items\/SongItems\/.*PrimeSongItem$|\/Upgrades\/Skins\/Liset\/.*Prime/i;
+
+const privatePrimeAccessFlavourDeniedPattern =
+    /FanChannel|PrimeTrader|Twitch|Amazon|Iridos|Verv|PrimeDay|RoatheTitles/i;
+
+const privatePrimeAccessResourcePathPattern = /\/Types\/Items\/ShipDecos\/.*Prime/i;
+
+const addPrivatePrimeAccessVarziaOffer = (
+    offers: Map<string, IPrimeVaultTraderOffer>,
+    existingVarziaItems: Set<string>,
+    typeName: string,
+    primePrice: number
+): void => {
+    const itemType = toStoreItem(typeName);
+    if (existingVarziaItems.has(typeName) || existingVarziaItems.has(itemType)) {
+        return;
+    }
+    offers.set(itemType, { ItemType: itemType, PrimePrice: primePrice });
+};
+
+const addPrivatePrimeAccessVarziaOffersFromTable = (
+    offers: Map<string, IPrimeVaultTraderOffer>,
+    existingVarziaItems: Set<string>,
+    table: TPrimeAccessExportTable,
+    primePrice: number,
+    predicate: (typeName: string, haystack: string) => boolean
+): void => {
+    for (const [typeName, item] of Object.entries(table)) {
+        if (!item?.excludeFromMarket) {
+            continue;
+        }
+
+        const haystack = getPrimeAccessExportHaystack(typeName, item);
+        if (
+            !/Prime/i.test(haystack) ||
+            privatePrimeAccessDeniedPattern.test(haystack) ||
+            !predicate(typeName, haystack)
+        ) {
+            continue;
+        }
+
+        addPrivatePrimeAccessVarziaOffer(offers, existingVarziaItems, typeName, primePrice);
+    }
+};
+
+const getPrivatePrimeAccessCustomPrimePrice = (typeName: string): number => {
+    return /Scarves|Effects|Armor\/Prime|Operator/i.test(typeName) ? 2 : 1;
+};
+
+const getPrivatePrimeAccessVarziaOffers = (buildLabel: string): IPrimeVaultTraderOffer[] => {
+    const existingVarziaItems = getExistingVarziaItemSet(buildLabel);
+    const offers = new Map<string, IPrimeVaultTraderOffer>();
+
+    for (const item of currentPrimeAccessVarziaItems) {
+        addPrivatePrimeAccessVarziaOffer(offers, existingVarziaItems, item.typeName, item.primePrice);
+    }
+
+    addPrivatePrimeAccessVarziaOffersFromTable(
+        offers,
+        existingVarziaItems,
+        ExportWarframes as TPrimeAccessExportTable,
+        3,
+        typeName => /\/Powersuits\/.+Prime$/i.test(typeName)
+    );
+
+    addPrivatePrimeAccessVarziaOffersFromTable(
+        offers,
+        existingVarziaItems,
+        ExportWeapons as TPrimeAccessExportTable,
+        2,
+        typeName =>
+            !typeName.includes("/Powersuits/") &&
+            (typeName.includes("/Weapons/Tenno/") || typeName.includes("/Types/Sentinels/SentinelWeapons/"))
+    );
+
+    addPrivatePrimeAccessVarziaOffersFromTable(
+        offers,
+        existingVarziaItems,
+        ExportSentinels as TPrimeAccessExportTable,
+        2,
+        () => true
+    );
+
+    for (const [typeName, item] of Object.entries(ExportCustoms as TPrimeAccessExportTable)) {
+        if (!item?.excludeFromMarket) {
+            continue;
+        }
+
+        const haystack = getPrimeAccessExportHaystack(typeName, item);
+        const isPrimeAccessBonusItem = privatePrimeAccessCustomBonusPattern.test(haystack);
+        if (
+            !/Prime/i.test(haystack) ||
+            privatePrimeAccessDeniedPattern.test(haystack) ||
+            (privatePrimeAccessCustomDeniedPattern.test(haystack) && !isPrimeAccessBonusItem) ||
+            (!privatePrimeAccessCustomPathPattern.test(typeName) && !isPrimeAccessBonusItem)
+        ) {
+            continue;
+        }
+
+        addPrivatePrimeAccessVarziaOffer(
+            offers,
+            existingVarziaItems,
+            typeName,
+            getPrivatePrimeAccessCustomPrimePrice(typeName)
+        );
+    }
+
+    addPrivatePrimeAccessVarziaOffersFromTable(
+        offers,
+        existingVarziaItems,
+        ExportFlavour as TPrimeAccessExportTable,
+        1,
+        (typeName, haystack) =>
+            privatePrimeAccessFlavourPathPattern.test(typeName) &&
+            !privatePrimeAccessFlavourDeniedPattern.test(haystack)
+    );
+
+    addPrivatePrimeAccessVarziaOffersFromTable(
+        offers,
+        existingVarziaItems,
+        ExportResources as TPrimeAccessExportTable,
+        1,
+        (typeName, haystack) =>
+            privatePrimeAccessResourcePathPattern.test(typeName) &&
+            !privatePrimeAccessFlavourDeniedPattern.test(haystack)
+    );
+
+    return [...offers.values()].sort((a, b) => a.ItemType.localeCompare(b.ItemType));
+};
+
+const createInvasion = (day: number, idx: number, buildVersion: number): IInvasion => {
+    const id = day * 3 + idx;
+    const defender = (["FC_GRINEER", "FC_CORPUS", day % 2 ? "FC_GRINEER" : "FC_CORPUS"] as const)[idx];
+    const rng = new SRng(new SRng(id).randomInt(0, 1_000_000));
+    const isInfestationOutbreak = rng.randomInt(0, 1) == 0;
+    const attacker = isInfestationOutbreak ? "FC_INFESTATION" : defender == "FC_GRINEER" ? "FC_CORPUS" : "FC_GRINEER";
+    const startMs = EPOCH + day * 86400_000;
+    const oid =
+        ((startMs / 1000) & 0xffffffff).toString(16).padStart(8, "0") +
+        "fd148cb8" +
+        (idx & 0xffffffff).toString(16).padStart(8, "0");
+    const node = sequentiallyUniqueRandomElement(invasionNodes[defender], id, 5, 690175)!; // Can't repeat the other 2 on this day nor the last 3
+    const progress = (Date.now() - startMs) / 86400_000;
+    const countMultiplier = isInfestationOutbreak || rng.randomInt(0, 1) ? -1 : 1; // if defender is winning, count is negative
+    const fiftyPercent = rng.randomInt(1000, 29000); // introduce some 'yitter' for the percentages
+    const rewardFloat = rng.randomFloat();
+    const rewardTier = rewardFloat < 0.201 ? "RARE" : rewardFloat < 0.7788 ? "COMMON" : "UNCOMMON";
+    const attackerReward: IMissionReward = {};
+    const defenderReward: IMissionReward = {};
+    if (isInfestationOutbreak) {
+        defenderReward.countedItems = [
+            rng.randomElement(invasionRewards[rng.randomInt(0, 1) ? "FC_INFESTATION" : defender][rewardTier])!
+        ];
+    } else {
+        attackerReward.countedItems = [rng.randomElement(invasionRewards[attacker][rewardTier])!];
+        defenderReward.countedItems = [rng.randomElement(invasionRewards[defender][rewardTier])!];
+    }
+    return {
+        _id: toOid2(oid, buildVersion),
+        Faction: attacker,
+        DefenderFaction: defender,
+        Node: node,
+        Count: Math.round(
+            (progress < 0.5 ? progress * 2 * fiftyPercent : fiftyPercent + (30_000 - fiftyPercent) * (progress - 0.5)) *
+                countMultiplier
+        ),
+        Goal: 30000, // Value seems to range from 30000 to 98000 in intervals of 1000. Higher values are increasingly rare. I don't think this is relevant for the frontend besides dividing count by it.
+        LocTag: isInfestationOutbreak
+            ? ExportRegions[node].missionType == "MT_ASSASSINATION"
+                ? "/Lotus/Language/Menu/InfestedInvasionBoss"
+                : "/Lotus/Language/Menu/InfestedInvasionGeneric"
+            : attacker == "FC_CORPUS"
+              ? "/Lotus/Language/Menu/CorpusInvasionGeneric"
+              : "/Lotus/Language/Menu/GrineerInvasionGeneric",
+        Completed: startMs + 86400_000 < Date.now(), // Sorta unfaithful. Invasions on live are (at least in part) in fluenced by people completing them. And otherwise also probably not hardcoded to last 24 hours.
+        ChainID: { $oid: oid },
+        AttackerReward: attackerReward,
+        AttackerMissionInfo: {
+            seed: rng.randomInt(0, 1_000_000),
+            faction: defender
+        },
+        DefenderReward: defenderReward,
+        DefenderMissionInfo: {
+            seed: rng.randomInt(0, 1_000_000),
+            faction: attacker
+        },
+        Activation: toMongoDate2(startMs, buildVersion)
+    };
+};
+
+export const getInvasionByOid = (oid: string): IInvasion | undefined => {
+    const arr = oid.split("fd148cb8");
+    if (arr.length == 2 && arr[0].length == 8 && arr[1].length == 8) {
+        return createInvasion(idToDay(oid), parseInt(arr[1], 16), BV_LATEST);
+    }
+    return undefined;
+};
+
+export const getWorldStateTime = (): {
+    timeSecs: number;
+    timeMs: number;
+    day: number;
+    week: number;
+    weekStart: number;
+    weekEnd: number;
+    date: Date;
+} => {
+    const constraints: ITimeConstraint[] = [];
+    if (config.worldState?.eidolonOverride) {
+        constraints.push(config.worldState.eidolonOverride == "day" ? eidolonDayConstraint : eidolonNightConstraint);
+    }
+    if (config.worldState?.vallisOverride) {
+        constraints.push(config.worldState.vallisOverride == "cold" ? venusColdConstraint : venusWarmConstraint);
+    }
+    if (config.worldState?.duviriOverride) {
+        const duviriMoods = ["sorrow", "fear", "joy", "anger", "envy"];
+        const desiredMood = duviriMoods.indexOf(config.worldState.duviriOverride);
+        if (desiredMood == -1) {
+            logger.warn(`ignoring invalid config value for worldState.duviriOverride`, {
+                value: config.worldState.duviriOverride,
+                valid_values: duviriMoods
+            });
+        } else {
+            constraints.push({
+                name: `duviri ${config.worldState.duviriOverride}`,
+                isValidTime: (timeSecs: number): boolean => {
+                    const moodIndex = Math.trunc(timeSecs / 7200);
+                    return moodIndex % 5 == desiredMood;
+                },
+                getIdealTimeBefore: (timeSecs: number): number => {
+                    let moodIndex = Math.trunc(timeSecs / 7200);
+                    moodIndex -= ((moodIndex % 5) - desiredMood + 5) % 5; // while (moodIndex % 5 != desiredMood) --moodIndex;
+                    const moodStart = moodIndex * 7200;
+                    return moodStart;
+                }
+            });
+        }
+    }
+    const timeSecs = getIdealTimeSatsifyingConstraints(constraints);
+    if (constraints.length != 0) {
+        const delta = Math.trunc(Date.now() / 1000) - timeSecs;
+        if (delta > 1) {
+            logger.debug(
+                `reported time is ${delta} seconds behind real time to satisfy selected constraints (${constraints.map(x => x.name).join(", ")})`
+            );
+        }
+    }
+    const timeMs = timeSecs * 1000;
+    const day = Math.trunc((timeMs - EPOCH) / 86400000);
+    const week = Math.trunc(day / 7);
+    const weekStart = EPOCH + week * 604800000;
+    const weekEnd = weekStart + 604800000;
+    const date = new Date(timeMs);
+    return {
+        timeSecs,
+        timeMs,
+        day,
+        week,
+        weekStart,
+        weekEnd,
+        date
+    };
+};
+
+export const getWorldState = (
+    buildLabel: string = BL_LATEST,
+    convertGoals: boolean = true,
+    changeLegacyTags: boolean = config.unfaithfulBugFixes?.useAnniversaryTagForOldGoals || false
+): IWorldState => {
+    const { timeSecs, timeMs, day, week, weekStart, weekEnd, date } = getWorldStateTime();
+    const buildVersion = buildVersionToInt(buildLabel);
+    const defenseWavesPerRotation = buildVersion < gameToBuildVersionInt["38.5.0"] ? 5 : 3;
+
+    const worldState: IWorldState = {
+        Version: 10,
+        BuildLabel: buildLabel,
+        Time: timeSecs,
+        Goals: [],
+        Events: [],
+        Alerts: [],
+        Sorties: [],
+        LiteSorties: [],
+        ActiveMissions: [],
+        FlashSales: [],
+        GlobalUpgrades: [],
+        Invasions: [],
+        VoidTraders: [],
+        PrimeVaultTraders: [],
+        VoidStorms: [],
+        DailyDeals: [],
+        //EndlessXpChoices: [],
+        //EndlessXpSchedule: [],
+        KnownCalendarSeasons: [],
+        PVPChallengeInstances: [],
+        FeaturedGuilds: [],
+        NodeOverrides: [],
+        LibraryInfo: { LastCompletedTargetType: "/Lotus/Types/Game/Library/Targets/Research7Target" },
+        PrimeVaultAvailabilities: [false, false, false, false, false],
+        PrimeTokenAvailability: true,
+        PrimeAccessAvailability: { State: "PRIME1" },
+        PersistentEnemies: [],
+        PVPAlternativeModes: [],
+        PVPActiveTournaments: [],
+        ConstructionProjects: [],
+        ProjectPct: [0, 0, 0],
+        TwitchPromos: [],
+        ForceLogoutVersion: 0,
+        ExperimentRecommended: [],
+        SyndicateMissions: [],
+        InGameMarket: {
+            LandingPage: {
+                Categories: [
+                    {
+                        CategoryName: "NEW_PLAYER",
+                        Name: "/Lotus/Language/Store/NewPlayerCategoryTitle",
+                        Icon: "newplayer",
+                        AddToMenu: true,
+                        Items: [
+                            "/Lotus/Types/StoreItems/Packages/2024Bundles/WeaponStarterPack",
+                            "/Lotus/StoreItems/Powersuits/MonkeyKing/MonkeyKing",
+                            "/Lotus/StoreItems/Weapons/Tenno/Melee/SwordsAndBoards/MeleeContestWinnerOne/TennoSwordShield",
+                            "/Lotus/StoreItems/Upgrades/Skins/Effects/WerewolfEphemera",
+                            "/Lotus/StoreItems/Types/StoreItems/SlotItems/TwoWeaponSlotItem",
+                            "/Lotus/StoreItems/Powersuits/Wisp/Wisp",
+                            "/Lotus/StoreItems/Weapons/Tenno/Shotgun/Shotgun",
+                            "/Lotus/StoreItems/Powersuits/Rhino/Rhino",
+                            "/Lotus/StoreItems/Weapons/Corpus/Pistols/CrpAirPistol/CrpAirPistolArray",
+                            "/Lotus/Types/StoreItems/Boosters/AffinityBooster3DayStoreItem"
+                        ]
+                    },
+                    {
+                        CategoryName: "NEW",
+                        Name: "/Lotus/Language/Menu/Store_New",
+                        Icon: "new",
+                        Items: []
+                    },
+                    {
+                        CategoryName: "POPULAR",
+                        Name: "/Lotus/Language/Menu/StorePopular",
+                        Icon: "popular",
+                        AddToMenu: true,
+                        Items: [
+                            "/Lotus/Types/StoreItems/Packages/2025Bundles/TC2025DigitalPack",
+                            "/Lotus/Types/StoreItems/Packages/2025Bundles/EncoreCompSupPack",
+                            "/Lotus/Types/StoreItems/Packages/2025Bundles/EncoreGeminiSupPack",
+                            "/Lotus/Types/StoreItems/Packages/WarframeBundles/TempleItemsBundle",
+                            "/Lotus/Types/StoreItems/Packages/FormaPack",
+                            "/Lotus/StoreItems/Upgrades/Skins/Saryn/WF1999SarynSkin",
+                            "/Lotus/StoreItems/Weapons/Tenno/Melee/Swords/DaxDuviriKatana/DaxDuviriKatanaWeapon",
+                            "/Lotus/StoreItems/Upgrades/Skins/Jade/WF1999NyxSkin",
+                            "/Lotus/StoreItems/Types/StoreItems/SuitCustomizations/NinjaColourPickerItem",
+                            "/Lotus/StoreItems/Upgrades/Skins/Mag/WF1999MagSkin",
+                            "/Lotus/StoreItems/Upgrades/Skins/Frost/WF1999FrostSkin",
+                            "/Lotus/StoreItems/Weapons/Tenno/Melee/Swords/DaxDuviriTwoHandedKatana/DaxDuviriTwoHandedKatanaWeapon",
+                            "/Lotus/StoreItems/Upgrades/Skins/Harlequin/MirageDeluxeSkin",
+                            "/Lotus/StoreItems/Weapons/Tenno/Melee/Hammer/DaxDuviriHammer/DaxDuviriHammerWeapon"
+                        ]
+                    },
+                    {
+                        CategoryName: "ALL_BUNDLES",
+                        Name: "/Lotus/Language/Store/Bundles",
+                        Icon: "popular",
+                        AddToMenu: true,
+                        Items: config.privateServerTuning?.market?.allBundles ? getAllMarketBundleItems() : []
+                    },
+                    {
+                        CategoryName: "SEASONAL",
+                        Name: "/Lotus/Language/Store/SeasonalCategoryTitle",
+                        Icon: "seasonal",
+                        AddToMenu: true,
+                        Items: []
+                    },
+                    {
+                        CategoryName: "COMMUNITY",
+                        Name: "/Lotus/Language/Store/CommunityCategoryTitle",
+                        Icon: "community",
+                        AddToMenu: true,
+                        Items: []
+                    },
+                    {
+                        CategoryName: "HEIRLOOM",
+                        Name: "/Lotus/Language/Store/HeirloomCategoryTitle",
+                        Icon: "heirloom",
+                        AddToMenu: true,
+                        Items: getHeirloomMarketItems()
+                    },
+                    {
+                        CategoryName: "PRIME_ACCESS",
+                        Name: "Prime Access",
+                        Icon: "new",
+                        AddToMenu: true,
+                        Items: []
+                    },
+                    {
+                        CategoryName: "TENNOGEN",
+                        Name: "/Lotus/Language/Menu/Store_Tennogen",
+                        Icon: "tennogen",
+                        AddToMenu: true,
+                        Items: config.privateServerTuning?.market?.tennogenForPlatinum
+                            ? []
+                            : [
+                                  "/Lotus/StoreItems/Upgrades/Skins/Armor/SWEndocitosShoulderArmor/SWEndocitosShoulderArmorA",
+                                  "/Lotus/StoreItems/Upgrades/Skins/Scarves/SWLunariusSyandana",
+                                  "/Lotus/StoreItems/Upgrades/Skins/Scarves/SWRauSyandana",
+                                  "/Lotus/StoreItems/Upgrades/Skins/Hoplite/SWStyanaxHuzarrSkin",
+                                  "/Lotus/StoreItems/Upgrades/Skins/Werewolf/VorunaDemionnaSkin"
+                              ]
+                    },
+                    {
+                        CategoryName: "SALE",
+                        Name: "/Lotus/Language/Menu/Store_Sale",
+                        Icon: "sale",
+                        AddToMenu: true,
+                        Items: []
+                    },
+                    {
+                        CategoryName: "WISH_LIST",
+                        Name: "/Lotus/Language/Menu/Store_Wishlist",
+                        Icon: "wishlist",
+                        Items: []
+                    },
+                    {
+                        CategoryName: "QUICK_BUY",
+                        Name: "/Lotus/Language/Store/TopSeller_Title",
+                        Icon: "quickbuy",
+                        Items: [
+                            "/Lotus/Types/StoreItems/Packages/FormaPack",
+                            "/Lotus/StoreItems/Types/Items/MiscItems/OrokinCatalyst",
+                            "/Lotus/StoreItems/Types/Items/MiscItems/WeaponUtilityUnlocker"
+                        ]
+                    }
+                ]
+            }
+        }
+    };
+
+    if (config.privateServerTuning?.market?.tennogenForPlatinum) {
+        pushFlashSales(
+            worldState,
+            getTennogenFlashSaleItems(),
+            timeMs - unixTimesInMs.day,
+            2000000000000,
+            "TENNOGEN",
+            buildVersion
+        );
+    }
+
+    pushFlashSales(
+        worldState,
+        getLegacyHeirloomFlashSaleItems(),
+        timeMs - unixTimesInMs.day,
+        2000000000000,
+        "HEIRLOOM",
+        buildVersion
+    );
+
+    if (config.privateServerTuning?.market?.primeAccessForPlatinum) {
+        pushFlashSales(
+            worldState,
+            getPrimeAccessFlashSaleItems(),
+            timeMs - unixTimesInMs.day,
+            2000000000000,
+            "PRIME_ACCESS",
+            buildVersion
+        );
+    }
+
+    worldState.Events.push({
+        Msg: "Join the OpenWF Discord!",
+        Messages: [
+            { LanguageCode: "fr", Message: "Rejoignez le Discord OpenWF!" },
+            { LanguageCode: "it", Message: "Unisciti al Discord di OpenWF!" },
+            { LanguageCode: "de", Message: "Trete dem OpenWF Discord bei!" },
+            { LanguageCode: "es", Message: "Únete al Discord de OpenWF!" },
+            { LanguageCode: "pt", Message: "Junte-se ao Discord do OpenWF!" },
+            { LanguageCode: "ru", Message: "Присоединяйтесь к OpenWF Discord!" },
+            { LanguageCode: "pl", Message: "Dołącz do Discord OpenWF!" },
+            { LanguageCode: "uk", Message: "Приєднуйтесь до OpenWF Discord!" },
+            { LanguageCode: "tr", Message: "OpenWF Discord'a katıl!" },
+            { LanguageCode: "ja", Message: "OpenWFのDiscordに参加しよう！" },
+            { LanguageCode: "zh", Message: "加入OpenWF Discord!" },
+            { LanguageCode: "ko", Message: "OpenWF Discord에 가입하세요!" },
+            { LanguageCode: "tc", Message: "加入OpenWF Discord!" }
+        ],
+        Prop: "https://discord.gg/PNNZ3asUuY",
+        Icon: "/Lotus/Interface/Icons/DiscordIconNoBacker.png"
+    });
+
+    if (config.worldState?.tennoLiveRelay) {
+        worldState.Goals.push({
+            _id: toOid2("687bf9400000000000000000", buildVersion),
+            Activation: toMongoDate2(1752955200000, buildVersion),
+            Expiry: toMongoDate2(2000000000000, buildVersion),
+            Count: 0,
+            Goal: 0,
+            Success: 0,
+            Personal: true,
+            Desc: "/Lotus/Language/Locations/RelayStationTennoConB",
+            ToolTip: "/Lotus/Language/Locations/RelayStationTennoConDescB",
+            Icon: "/Lotus/Interface/Icons/Categories/IconTennoLive.png",
+            Tag: "TennoConRelayB",
+            Node: "TennoConBHUB6"
+        });
+    }
+    if (config.worldState?.baroTennoConRelay) {
+        worldState.Goals.push({
+            _id: toOid2("687bb2f00000000000000000", buildVersion),
+            Activation: toMongoDate2(1752937200000, buildVersion),
+            Expiry: toMongoDate2(2000000000000, buildVersion),
+            Count: 0,
+            Goal: 0,
+            Success: 0,
+            Personal: true,
+            //"Faction": "FC_GRINEER",
+            Desc: "/Lotus/Language/Locations/RelayStationTennoCon",
+            ToolTip: "/Lotus/Language/Locations/RelayStationTennoConDesc",
+            Icon:
+                buildVersion >= gameToBuildVersionInt["43.0.0"]
+                    ? "/Lotus/Interface/Icons/Categories/IconTennoConBaroVip.png"
+                    : "/Lotus/Interface/Icons/Categories/IconTennoConSigil.png",
+            Tag: "TennoConRelay",
+            Node: "TennoConHUB2"
+        });
+        const vt: IVoidTrader = {
+            _id: toOid2("687809030379266d790495c6", buildVersion),
+            Activation: toMongoDate2(1752937200000, buildVersion),
+            Expiry: toMongoDate2(2000000000000, buildVersion),
+            Character: "Baro'Ki Teel",
+            Node: "TennoConHUB2",
+            Manifest: []
+        };
+        worldState.VoidTraders.push(vt);
+        fullyStockBaro(vt, buildVersion);
+    }
+
+    if (config.worldState) {
+        for (const [key, alert] of Object.entries(configAlerts)) {
+            if (config.worldState[key as keyof typeof config.worldState]) {
+                const { minBuildVersion, ...wsAlert } = alert;
+                if (!minBuildVersion || buildVersion >= minBuildVersion) {
+                    if (wsAlert.MissionInfo.missionType == "MT_DEFENSE") {
+                        wsAlert.MissionInfo.maxWaveNum =
+                            defenseWavesPerRotation * (wsAlert.MissionInfo.maxRotations ?? 1);
+                        wsAlert.MissionInfo.maxRotations = undefined;
+                    }
+                    worldState.Alerts.push(wsAlert);
+                }
+            }
+        }
+    }
+
+    if (config.worldState?.qtccAlerts) {
+        const activation = 1759327200000;
+        const expiry = 2000000000000;
+
+        worldState.Alerts.push(
+            {
+                _id: toOid2("68dc23c42e9d3acfa708ff3b", buildVersion),
+                Activation: { $date: { $numberLong: activation.toString() } },
+                Expiry: { $date: { $numberLong: expiry.toString() } },
+                MissionInfo: {
+                    location: "SolNode123",
+                    missionType: "MT_SURVIVAL",
+                    faction: "FC_CORPUS",
+                    difficulty: 1,
+                    missionReward: {
+                        credits: 10000,
+                        items: ["/Lotus/StoreItems/Types/Items/ShipDecos/Plushies/Plushy2021QTCC"]
+                    },
+                    levelOverride: "/Lotus/Levels/Proc/Corpus/CorpusShipSurvivalRaid",
+                    enemySpec: "/Lotus/Types/Game/EnemySpecs/CorpusShipEnemySpecs/CorpusShipSurvivalA",
+                    minEnemyLevel: 20,
+                    maxEnemyLevel: 30,
+                    descText: "/Lotus/Language/Alerts/TennoUnitedAlert",
+                    maxWaveNum: 5
+                },
+                Tag: "LotusGift",
+                ForceUnlock: true
+            },
+            {
+                _id: toOid2("68dc2466e298b4f04206687a", buildVersion),
+                Activation: { $date: { $numberLong: activation.toString() } },
+                Expiry: { $date: { $numberLong: expiry.toString() } },
+                MissionInfo: {
+                    location: "SolNode149",
+                    missionType: "MT_DEFENSE",
+                    faction: "FC_GRINEER",
+                    difficulty: 1,
+                    missionReward: {
+                        credits: 10000,
+                        items: ["/Lotus/StoreItems/Types/Items/ShipDecos/Plushies/Plushy2022QTCC"]
+                    },
+                    levelOverride: "/Lotus/Levels/Proc/Grineer/GrineerShipyardsDefense",
+                    enemySpec: "/Lotus/Types/Game/EnemySpecs/GrineerShipyardsDefenseA",
+                    minEnemyLevel: 20,
+                    maxEnemyLevel: 30,
+                    descText: "/Lotus/Language/Alerts/TennoUnitedAlert",
+                    maxWaveNum: defenseWavesPerRotation * 1
+                },
+                Tag: "LotusGift",
+                ForceUnlock: true
+            },
+            {
+                _id: toOid2("68dc26865e7cb56b820b4252", buildVersion),
+                Activation: { $date: { $numberLong: activation.toString() } },
+                Expiry: { $date: { $numberLong: expiry.toString() } },
+                MissionInfo: {
+                    location: "SolNode39",
+                    missionType: "MT_EXCAVATE",
+                    faction: "FC_GRINEER",
+                    difficulty: 1,
+                    missionReward: {
+                        credits: 10000,
+                        items: ["/Lotus/StoreItems/Types/Items/ShipDecos/Plushies/PlushyVirminkQTCC"]
+                    },
+                    levelOverride: "/Lotus/Levels/Proc/Grineer/GrineerForestExcavation",
+                    enemySpec: "/Lotus/Types/Game/EnemySpecs/ForestGrineerExcavationA",
+                    minEnemyLevel: 20,
+                    maxEnemyLevel: 30,
+                    descText: "/Lotus/Language/Alerts/TennoUnitedAlert",
+                    maxWaveNum: 5
+                },
+                Tag: "LotusGift",
+                ForceUnlock: true
+            }
+        );
+
+        pushFlashSales(worldState, qqtcFlashSales, activation, expiry, "COMMUNITY", buildVersion);
+    }
+
+    const isFebruary = date.getUTCMonth() == 1;
+    if ((config.worldState?.starDaysOverride ?? isFebruary) && buildVersion >= gameToBuildVersionInt["29.10.0"]) {
+        worldState.Goals.push({
+            _id: toOid2("67a4dcce2a198564d62e1647", buildVersion),
+            Activation: {
+                $date: {
+                    $numberLong: config.worldState?.starDaysOverride
+                        ? "1738868400000"
+                        : Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1).toString()
+                }
+            },
+            Expiry: {
+                $date: {
+                    $numberLong: config.worldState?.starDaysOverride
+                        ? "2000000000000"
+                        : Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1).toString()
+                }
+            },
+            Count: 0,
+            Goal: 0,
+            Success: 0,
+            Personal: true,
+            Desc: "/Lotus/Language/Events/ValentinesFortunaName",
+            ToolTip: "/Lotus/Language/Events/ValentinesFortunaName",
+            Icon: "/Lotus/Interface/Icons/WorldStatePanel/ValentinesEventIcon.png",
+            Tag: "FortunaValentines",
+            Node: "SolarisUnitedHub1"
+        });
+    }
+
+    if (buildVersion >= gameToBuildVersionInt["38.6.0"]) {
+        // The client gets kinda confused when multiple goals have the same tag, so considering these mutually exclusive.
+        if (config.worldState?.galleonOfGhouls == 1) {
+            worldState.Goals.push({
+                _id: toOid2("6814ddf00000000000000000", buildVersion),
+                Activation: toMongoDate2(1746198000000, buildVersion),
+                Expiry: toMongoDate2(2000000000000, buildVersion),
+                Count: 0,
+                Goal: 1,
+                Success: 0,
+                Personal: true,
+                Bounty: true,
+                ClampNodeScores: true,
+                Node: "EventNode19",
+                MissionKeyName: "/Lotus/Types/Keys/GalleonRobberyAlert",
+                Desc: "/Lotus/Language/Events/GalleonRobberyEventMissionTitle",
+                Icon: "/Lotus/Interface/Icons/Player/GalleonRobberiesEvent.png",
+                Tag: "GalleonRobbery",
+                Reward: {
+                    items: [
+                        "/Lotus/StoreItems/Types/Recipes/Weapons/GrnChainSawTonfaBlueprint",
+                        "/Lotus/StoreItems/Upgrades/Skins/Clan/BountyHunterBadgeItem"
+                    ]
+                }
+            });
+        } else if (config.worldState?.galleonOfGhouls == 2) {
+            worldState.Goals.push({
+                _id: toOid2("681e18700000000000000000", buildVersion),
+                Activation: toMongoDate2(1746802800000, buildVersion),
+                Expiry: toMongoDate2(2000000000000, buildVersion),
+                Count: 0,
+                Goal: 1,
+                Success: 0,
+                Personal: true,
+                Bounty: true,
+                ClampNodeScores: true,
+                Node: "EventNode28", // Incompatible with Wolf Hunt, Orphix Venom, Warframe Anniversary
+                MissionKeyName: "/Lotus/Types/Keys/GalleonRobberyAlertB",
+                Desc: "/Lotus/Language/Events/GalleonRobberyEventMissionTitle",
+                Icon: "/Lotus/Interface/Icons/Player/GalleonRobberiesEvent.png",
+                Tag: "GalleonRobbery",
+                Reward: {
+                    items: [
+                        "/Lotus/StoreItems/Types/Recipes/Weapons/MortiforShieldAndSwordBlueprint",
+                        "/Lotus/StoreItems/Upgrades/Skins/Clan/BountyHunterBadgeItem"
+                    ]
+                }
+            });
+        } else if (config.worldState?.galleonOfGhouls == 3) {
+            worldState.Goals.push({
+                _id: toOid2("682752f00000000000000000", buildVersion),
+                Activation: toMongoDate2(1747407600000, buildVersion),
+                Expiry: toMongoDate2(2000000000000, buildVersion),
+                Count: 0,
+                Goal: 1,
+                Success: 0,
+                Personal: true,
+                Bounty: true,
+                ClampNodeScores: true,
+                Node: "EventNode19",
+                MissionKeyName: "/Lotus/Types/Keys/GalleonRobberyAlertC",
+                Desc: "/Lotus/Language/Events/GalleonRobberyEventMissionTitle",
+                Icon: "/Lotus/Interface/Icons/Player/GalleonRobberiesEvent.png",
+                Tag: "GalleonRobbery",
+                Reward: {
+                    items: [
+                        "/Lotus/Types/StoreItems/Packages/EventCatalystReactorBundle",
+                        "/Lotus/StoreItems/Upgrades/Skins/Clan/BountyHunterBadgeItem"
+                    ]
+                }
+            });
+        }
+    }
+
+    const firstNovemberWeekday = new Date(Date.UTC(date.getUTCFullYear(), 10, 1)).getUTCDay();
+    const firstNovemberMondayOffset = (8 - firstNovemberWeekday) % 7;
+
+    const plagueStarStart = Date.UTC(date.getUTCFullYear(), 10, firstNovemberMondayOffset + 1, 16);
+    const plagueStarEnd = Date.UTC(date.getUTCFullYear(), 10, firstNovemberMondayOffset + 15, 16);
+
+    const isPlagueStarActive = timeMs >= plagueStarStart && timeMs < plagueStarEnd;
+    if (
+        (config.worldState?.plagueStarOverride ?? isPlagueStarActive) &&
+        buildVersion >= gameToBuildVersionInt["22.7.0"]
+    ) {
+        worldState.Goals.push({
+            _id: toOid2("654a5058c757487cdb11824f", buildVersion),
+            Activation: {
+                $date: {
+                    $numberLong: config.worldState?.plagueStarOverride ? "1699372800000" : plagueStarStart.toString()
+                }
+            },
+            Expiry: {
+                $date: {
+                    $numberLong: config.worldState?.plagueStarOverride ? "2000000000000" : plagueStarEnd.toString()
+                }
+            },
+            Tag: "InfestedPlains",
+            RegionIdx: 2,
+            Faction: "FC_INFESTATION",
+            Desc: "/Lotus/Language/InfestedPlainsEvent/InfestedPlainsBountyName",
+            ToolTip: "/Lotus/Language/InfestedPlainsEvent/InfestedPlainsBountyDesc",
+            Icon: "/Lotus/Materials/Emblems/PlagueStarEventBadge_e.png",
+            JobAffiliationTag: "EventSyndicate",
+            Jobs: [
+                {
+                    jobType: "/Lotus/Types/Gameplay/Eidolon/Jobs/Events/InfestedPlainsBounty",
+                    rewards: "/Lotus/Types/Game/MissionDecks/EidolonJobMissionRewards/PlagueStarTableRewards",
+                    minEnemyLevel: 15,
+                    maxEnemyLevel: 25,
+                    xpAmounts: [50, 300, 100, 575]
+                },
+                {
+                    jobType: "/Lotus/Types/Gameplay/Eidolon/Jobs/Events/InfestedPlainsBountyAdvanced",
+                    rewards: "/Lotus/Types/Game/MissionDecks/EidolonJobMissionRewards/PlagueStarTableRewards",
+                    minEnemyLevel: 55,
+                    maxEnemyLevel: 65,
+                    xpAmounts: [200, 1000, 300, 1700],
+                    requiredItems: [
+                        "/Lotus/StoreItems/Types/Items/Eidolon/InfestedEventIngredient",
+                        "/Lotus/StoreItems/Types/Items/Eidolon/InfestedEventClanIngredient"
+                    ],
+                    useRequiredItemsAsMiscItemFee: true
+                },
+                {
+                    jobType: "/Lotus/Types/Gameplay/Eidolon/Jobs/Events/InfestedPlainsBountySteelPath",
+                    rewards: "/Lotus/Types/Game/MissionDecks/EidolonJobMissionRewards/PlagueStarTableSteelPathRewards",
+                    minEnemyLevel: 100,
+                    maxEnemyLevel: 110,
+                    xpAmounts: [200, 1100, 400, 2100],
+                    masteryReq: 10,
+                    requiredItems: [
+                        "/Lotus/StoreItems/Types/Items/Eidolon/InfestedEventIngredient",
+                        "/Lotus/StoreItems/Types/Items/Eidolon/InfestedEventClanIngredient"
+                    ],
+                    useRequiredItemsAsMiscItemFee: true
+                }
+            ],
+            Transmission: "/Lotus/Sounds/Dialog/PlainsMeteorLeadUp/LeadUp/DLeadUp0021Lotus",
+            InstructionalItem: "/Lotus/Types/StoreItems/Packages/PlagueStarEventStoreItem"
+        });
+    }
+
+    const firstAugustWeekday = new Date(Date.UTC(date.getUTCFullYear(), 7, 1)).getUTCDay();
+    const firstAugustWednesdayOffset = (3 - firstAugustWeekday + 7) % 7;
+    const dogDaysStart = Date.UTC(date.getUTCFullYear(), 7, 1 + firstAugustWednesdayOffset, 15);
+
+    const firstSeptemberWeekday = new Date(Date.UTC(date.getUTCFullYear(), 8, 1)).getUTCDay();
+    const firstSeptemberWednesdayOffset = (3 - firstSeptemberWeekday + 7) % 7;
+    const dogDaysEnd = Date.UTC(date.getUTCFullYear(), 8, 1 + firstSeptemberWednesdayOffset, 15);
+
+    const isDogDaysActive = timeMs >= dogDaysStart && timeMs < dogDaysEnd;
+    if ((config.worldState?.dogDaysOverride ?? isDogDaysActive) && buildVersion >= gameToBuildVersionInt["25.7.0"]) {
+        const activation = config.worldState?.dogDaysOverride ? 1699372800000 : dogDaysStart;
+        const expiry = config.worldState?.dogDaysOverride ? 2000000000000 : dogDaysEnd;
+        const rewards = [
+            [
+                {
+                    credits: 50000,
+                    items: ["/Lotus/StoreItems/Upgrades/Skins/Weapons/Redeemer/RedeemerRelayWaterSkin"]
+                },
+                {
+                    credits: 50000,
+                    items: ["/Lotus/StoreItems/Types/Items/MiscItems/PhotoboothTileHydroidRelay"]
+                },
+                {
+                    credits: 50000,
+                    items: ["/Lotus/StoreItems/Types/Items/ShipDecos/RelayHydroidBobbleHead"]
+                },
+                {
+                    items: [
+                        "/Lotus/StoreItems/Types/Items/MiscItems/OrokinReactor",
+                        "/Lotus/StoreItems/Upgrades/Skins/Clan/BountyHunterBadgeItem"
+                    ]
+                }
+            ],
+            [
+                {
+                    credits: 50000,
+                    items: ["/Lotus/StoreItems/Upgrades/Skins/Sigils/DogDays2023ASigil"], // 2023.07.26.16.38
+                    countedItems: [
+                        {
+                            ItemType: "/Lotus/Types/Items/MiscItems/WaterFightBucks",
+                            ItemCount: 25
+                        }
+                    ]
+                },
+                {
+                    credits: 50000,
+                    items: ["/Lotus/StoreItems/Types/Items/ShipDecos/Plushies/PlushyBeachKavat"], // 2024.02.16.17.13
+                    countedItems: [
+                        {
+                            ItemType: "/Lotus/Types/Items/MiscItems/WaterFightBucks",
+                            ItemCount: 50
+                        }
+                    ]
+                },
+                {
+                    credits: 50000,
+                    items: ["/Lotus/StoreItems/Types/Items/ShipDecos/Plushies/PlushyRucksackKubrow"], // 2024.02.16.17.13
+                    countedItems: [
+                        {
+                            ItemType: "/Lotus/Types/Items/MiscItems/WaterFightBucks",
+                            ItemCount: 75
+                        }
+                    ]
+                },
+                {
+                    items: ["/Lotus/StoreItems/Types/Items/ShipDecos/LisetPropCleaningDroneBeachcomber"], // 2023.07.26.16.38
+                    countedItems: [
+                        {
+                            ItemType: "/Lotus/Types/Items/MiscItems/WaterFightBucks",
+                            ItemCount: 100
+                        }
+                    ]
+                }
+            ],
+            [
+                {
+                    credits: 50000,
+                    items: ["/Lotus/StoreItems/Types/StoreItems/AvatarImages/Seasonal/AvatarImageDogDays2024Glyph"], // 2024.07.17.17.07
+                    countedItems: [
+                        {
+                            ItemType: "/Lotus/Types/Items/MiscItems/WaterFightBucks",
+                            ItemCount: 25
+                        }
+                    ]
+                },
+                {
+                    credits: 50000,
+                    items: ["/Lotus/StoreItems/Types/Items/ShipDecos/DogDays2024Poster"], // 2024.07.17.17.07
+                    countedItems: [
+                        {
+                            ItemType: "/Lotus/Types/Items/MiscItems/WaterFightBucks",
+                            ItemCount: 50
+                        }
+                    ]
+                },
+                {
+                    credits: 50000,
+                    items: ["/Lotus/StoreItems/Upgrades/Skins/Clan/DogDaysKubrowBadgeItem"], // 2024.07.17.17.07
+                    countedItems: [
+                        {
+                            ItemType: "/Lotus/Types/Items/MiscItems/WaterFightBucks",
+                            ItemCount: 75
+                        }
+                    ]
+                },
+                {
+                    items: ["/Lotus/StoreItems/Types/Items/ShipDecos/DogDays2024LisetPropCleaningDroneBeachcomber"], // 2024.07.17.17.07
+                    countedItems: [
+                        {
+                            ItemType: "/Lotus/Types/Items/MiscItems/WaterFightBucks",
+                            ItemCount: 100
+                        }
+                    ]
+                }
+            ],
+            [
+                {
+                    credits: 50000,
+                    items: ["/Lotus/StoreItems/Types/StoreItems/AvatarImages/AvatarImageDogDaysHydroidGlyph"], // 2025.06.23.11.39
+                    countedItems: [
+                        {
+                            ItemType: "/Lotus/Types/Items/MiscItems/WaterFightBucks",
+                            ItemCount: 25
+                        }
+                    ]
+                },
+                {
+                    credits: 50000,
+                    items: ["/Lotus/StoreItems/Types/StoreItems/AvatarImages/AvatarImageDogDaysLokiGlyph"], // 2025.06.23.11.39
+                    countedItems: [
+                        {
+                            ItemType: "/Lotus/Types/Items/MiscItems/WaterFightBucks",
+                            ItemCount: 50
+                        }
+                    ]
+                },
+                {
+                    credits: 50000,
+                    items: ["/Lotus/StoreItems/Types/StoreItems/AvatarImages/AvatarImageDogDaysNovaGlyph"], // 2025.06.23.11.39
+                    countedItems: [
+                        {
+                            ItemType: "/Lotus/Types/Items/MiscItems/WaterFightBucks",
+                            ItemCount: 75
+                        }
+                    ]
+                },
+                {
+                    credits: 50000,
+                    items: ["/Lotus/StoreItems/Types/StoreItems/AvatarImages/AvatarImageDogDaysValkyrGlyph"], // 2025.06.23.11.39
+                    countedItems: [
+                        {
+                            ItemType: "/Lotus/Types/Items/MiscItems/WaterFightBucks",
+                            ItemCount: 100
+                        }
+                    ]
+                }
+            ],
+            [
+                {
+                    credits: 50000,
+                    items: ["/Lotus/StoreItems/Types/StoreItems/AvatarImages/AvatarImageDogDaysKelaGlyph"], // 2026.07.09.15.36
+                    countedItems: [
+                        {
+                            ItemType: "/Lotus/Types/Items/MiscItems/WaterFightBucks",
+                            ItemCount: 25
+                        }
+                    ]
+                },
+                {
+                    credits: 50000,
+                    items: ["/Lotus/StoreItems/Types/StoreItems/AvatarImages/AvatarImageDogDaysRusalkaGlyph"], // 2026.07.09.15.36
+                    countedItems: [
+                        {
+                            ItemType: "/Lotus/Types/Items/MiscItems/WaterFightBucks",
+                            ItemCount: 50
+                        }
+                    ]
+                },
+                {
+                    credits: 50000,
+                    items: ["/Lotus/StoreItems/Types/StoreItems/AvatarImages/AvatarImageDogDaysErraGlyph"], // 2026.07.09.15.36
+                    countedItems: [
+                        {
+                            ItemType: "/Lotus/Types/Items/MiscItems/WaterFightBucks",
+                            ItemCount: 75
+                        }
+                    ]
+                },
+                {
+                    credits: 50000,
+                    items: ["/Lotus/StoreItems/Types/StoreItems/AvatarImages/AvatarImageDogDaysGareshGlyph"], // 2026.07.09.15.36
+                    countedItems: [
+                        {
+                            ItemType: "/Lotus/Types/Items/MiscItems/WaterFightBucks",
+                            ItemCount: 100
+                        }
+                    ]
+                }
+            ]
+        ];
+
+        const fallbackYear =
+            buildVersion >= gameToBuildVersionInt["43.0.0"]
+                ? 4
+                : buildVersion >= gameToBuildVersionInt["39.0.0"]
+                  ? 3
+                  : buildVersion >= gameToBuildVersionInt["36.1.2"]
+                    ? 2
+                    : buildVersion >= gameToBuildVersionInt["33.6.0"]
+                      ? 1
+                      : 0;
+
+        const year = config.worldState?.dogDaysRewardsOverride ?? fallbackYear;
+
+        worldState.Goals.push({
+            _id: {
+                $oid:
+                    ((dogDaysStart / 1000) & 0xffffffff).toString(16).padStart(8, "0") +
+                    "c57487c3768936d" +
+                    year.toString(16)
+            },
+            Activation: { $date: { $numberLong: activation.toString() } },
+            Expiry: { $date: { $numberLong: expiry.toString() } },
+            Count: 0,
+            Goal: 100,
+            InterimGoals: [25, 50],
+            BonusGoal: 200,
+            Success: 0,
+            Personal: true,
+            Bounty: true,
+            ClampNodeScores: true,
+            Node: "EventNode25", // Incompatible with Hallowed Flame, Hallowed Nightmares, Warframe Anniversary
+            ConcurrentMissionKeyNames: [
+                "/Lotus/Types/Keys/TacAlertKeyWaterFightB",
+                "/Lotus/Types/Keys/TacAlertKeyWaterFightC",
+                "/Lotus/Types/Keys/TacAlertKeyWaterFightD"
+            ],
+            ConcurrentNodeReqs: [25, 50, 100],
+            ConcurrentNodes: ["EventNode24", "EventNode34", "EventNode35"], // Incompatible with Hallowed Flame, Hallowed Nightmares, Warframe Anniversary
+            MissionKeyName: "/Lotus/Types/Keys/TacAlertKeyWaterFightA",
+            Faction: "FC_CORPUS",
+            Desc: "/Lotus/Language/Alerts/TacAlertWaterFight",
+            Icon: "/Lotus/Interface/Icons/StoreIcons/Emblems/SplashEventIcon.png",
+            Tag: "WaterFight",
+            InterimRewards: rewards[year].slice(0, 2),
+            Reward: rewards[year][2],
+            BonusReward: rewards[year][3],
+            ScoreVar: "Team1Score",
+            NightLevel: "/Lotus/Levels/GrineerBeach/GrineerBeachEventNight.level"
+        });
+
+        pushFlashSales(worldState, dogDaysFlashSales, activation, expiry, "SEASONAL", buildVersion);
+    }
+
+    // there no strict start day so lets pick first march monday
+    const firstMarchWeekday = new Date(Date.UTC(date.getUTCFullYear(), 2, 1)).getUTCDay();
+    const firstMarchMondayOffset = (8 - firstMarchWeekday) % 7;
+
+    const saintPatrickStart = Date.UTC(date.getUTCFullYear(), 2, firstMarchMondayOffset + 1, 16);
+    const saintPatrickEnd = Date.UTC(date.getUTCFullYear(), 2, firstMarchMondayOffset + 22, 16);
+
+    const isSaintPatrickActive = timeMs >= saintPatrickStart && timeMs < saintPatrickEnd;
+    if (
+        (config.worldState?.saintPatrickOverride ?? isSaintPatrickActive) &&
+        buildVersion >= gameToBuildVersionInt["13.0.0"]
+    ) {
+        const activation = config.worldState?.saintPatrickOverride ? 1772467200000 : saintPatrickStart;
+        const expiry = config.worldState?.saintPatrickOverride ? 2000000000000 : saintPatrickEnd;
+        pushFlashSales(worldState, saintPatrickDayFlashSales, activation, expiry, "SEASONAL", buildVersion);
+    }
+
+    // Pride Month - June
+    const isJune = date.getUTCMonth() == 5;
+    if ((config.worldState?.prideOverride ?? isJune) && buildVersion >= gameToBuildVersionInt["29.5.0"]) {
+        const activation = config.worldState?.prideOverride ? 1772467200000 : Date.UTC(date.getUTCFullYear(), 5, 1);
+        const expiry = config.worldState?.prideOverride ? 2000000000000 : Date.UTC(date.getUTCFullYear(), 6, 1);
+        pushFlashSales(worldState, prideMonthFlashSales, activation, expiry, "SEASONAL", buildVersion);
+    }
+
+    const xmasStart = Date.UTC(date.getUTCFullYear(), 11, 1);
+    const xmasEnd = Date.UTC(date.getUTCFullYear() + 1, 1, 1);
+    const isXmas = timeMs >= xmasStart && timeMs < xmasEnd;
+    if ((config.worldState?.xmasOverride ?? isXmas) && buildVersion >= gameToBuildVersionInt["13.0.0"]) {
+        const activation = config.worldState?.xmasOverride ? 1772467200000 : xmasStart;
+        const expiry = config.worldState?.xmasOverride ? 2000000000000 : xmasEnd;
+        pushFlashSales(worldState, tennobaumFlashSales, activation, expiry, "SEASONAL", buildVersion);
+    }
+
+    if (config.worldState?.anniversary != undefined) {
+        // Incompatible with: Use Tag from Warframe Anniversary for old Events, Wolf Hunt, Galleon Of Ghouls, Hallowed Flame, Hallowed Nightmares, Dog Days, Proxy Rebellion, Long Shadow
+        const goalsByWeek: Partial<IGoal>[][] = [
+            [
+                {
+                    Node: "EventNode28",
+                    MissionKeyName: "/Lotus/Types/Keys/TacAlertKeyAnniversary2019E",
+                    Tag: "Anniversary2019TacAlert",
+                    Reward: { items: ["/Lotus/StoreItems/Upgrades/Skins/Excalibur/ExcaliburDexSkin"] }
+                },
+                {
+                    Node: "EventNode26",
+                    MissionKeyName: "/Lotus/Types/Keys/TacAlertKeyAnniversary2020F",
+                    Tag: "Anniversary2020TacAlert",
+                    Reward: { items: ["/Lotus/StoreItems/Types/Items/ShipDecos/ExcaliburDexBobbleHead"] }
+                },
+                {
+                    Node: "EventNode19",
+                    MissionKeyName: "/Lotus/Types/Keys/TacAlertKeyAnniversary2024ChallengeModeA",
+                    Tag: "Anniversary2024TacAlertCMA",
+                    Reward: { items: ["/Lotus/StoreItems/Types/Items/MiscItems/WeaponUtilityUnlocker"] }
+                }
+            ],
+            [
+                {
+                    Node: "EventNode24",
+                    MissionKeyName: "/Lotus/Types/Keys/TacAlertKeyAnniversary2017C",
+                    Tag: "Anniversary2018TacAlert",
+                    Reward: { items: ["/Lotus/StoreItems/Weapons/Tenno/LongGuns/DexTheThird/DexTheThird"] }
+                },
+                {
+                    Node: "EventNode18",
+                    MissionKeyName: "/Lotus/Types/Keys/TacAlertKeyAnniversary2020H",
+                    Tag: "Anniversary2020TacAlert",
+                    Reward: { items: ["/Lotus/StoreItems/Types/StoreItems/AvatarImages/ImageDexAnniversary"] }
+                }
+            ],
+            [
+                {
+                    Node: "EventNode18",
+                    MissionKeyName: "/Lotus/Types/Keys/TacAlertKeyAnniversary2022J",
+                    Tag: "Anniversary2022TacAlert",
+                    Reward: { items: ["/Lotus/StoreItems/Upgrades/Skins/Rhino/RhinoDexSkin"] }
+                },
+                {
+                    Node: "EventNode38",
+                    MissionKeyName: "/Lotus/Types/Keys/TacAlertKeyAnniversary2025D",
+                    Tag: "Anniversary2020TacAlert",
+                    Reward: { items: ["/Lotus/StoreItems/Types/Items/ShipDecos/RhinoDexBobbleHead"] }
+                },
+                {
+                    Node: "EventNode27",
+                    MissionKeyName: "/Lotus/Types/Keys/TacAlertKeyAnniversary2025ChallengeModeA",
+                    Tag: "Anniversary2024TacAlertCMA",
+                    Reward: { items: ["/Lotus/StoreItems/Types/Items/MiscItems/OrokinCatalyst"] }
+                }
+            ],
+            [
+                {
+                    Node: "EventNode2",
+                    MissionKeyName: "/Lotus/Types/Keys/TacAlertKeyAnniversary2020G",
+                    Tag: "Anniversary2020TacAlert",
+                    Reward: { items: ["/Lotus/StoreItems/Upgrades/Skins/Liset/DexLisetSkin"] }
+                },
+                {
+                    Node: "EventNode17",
+                    MissionKeyName: "/Lotus/Types/Keys/TacAlertKeyAnniversary2017B",
+                    Tag: "Anniversary2018TacAlert",
+                    Reward: { items: ["/Lotus/StoreItems/Weapons/Tenno/Melee/Swords/DexTheSecond/DexTheSecond"] }
+                }
+            ],
+            [
+                {
+                    Node: "EventNode18",
+                    MissionKeyName: "/Lotus/Types/Keys/TacAlertKeyAnniversary2017A",
+                    Tag: "Anniversary2018TacAlert",
+                    Reward: { items: ["/Lotus/StoreItems/Weapons/Tenno/Pistols/DexFuris/DexFuris"] }
+                },
+                {
+                    Node: "EventNode26",
+                    MissionKeyName: "/Lotus/Types/Keys/TacAlertKeyAnniversary2023K",
+                    Tag: "Anniversary2025TacAlert",
+                    Reward: { items: ["/Lotus/StoreItems/Types/StoreItems/AvatarImages/AvatarImageCommunityClemComic"] }
+                },
+                {
+                    Node: "EventNode12",
+                    MissionKeyName: "/Lotus/Types/Keys/TacAlertKeyAnniversary2025ChallengeModeB",
+                    Tag: "Anniversary2025TacAlertCMB",
+                    Reward: { items: ["/Lotus/StoreItems/Types/Items/MiscItems/WeaponPrimaryArcaneUnlocker"] }
+                }
+            ],
+            [
+                {
+                    Node: "EventNode17",
+                    MissionKeyName: "/Lotus/Types/Keys/TacAlertKeyAnniversary2025A",
+                    Tag: "Anniversary2025TacAlert",
+                    Reward: {
+                        items: [
+                            "/Lotus/StoreItems/Weapons/Tenno/Melee/Swords/KatanaAndWakizashi/Dex2023Nikana/Dex2023Nikana"
+                        ]
+                    }
+                },
+                {
+                    Node: "EventNode27",
+                    MissionKeyName: "/Lotus/Types/Keys/TacAlertKeyAnniversary2018D",
+                    Tag: "Anniversary2018TacAlert",
+                    Reward: { items: ["/Lotus/StoreItems/Upgrades/Skins/Scarves/DexScarf"] }
+                }
+            ],
+            [
+                {
+                    Node: "EventNode38",
+                    MissionKeyName: "/Lotus/Types/Keys/TacAlertKeyAnniversary2025C",
+                    Tag: "Anniversary2018TacAlert",
+                    Reward: { items: ["/Lotus/StoreItems/Upgrades/Skins/Wisp/DexWispSkin"] }
+                },
+                {
+                    Node: "EventNode12",
+                    MissionKeyName: "/Lotus/Types/Keys/TacAlertKeyAnniversary2024L",
+                    Tag: "Anniversary2024TacAlert",
+                    Reward: { items: ["/Lotus/Types/StoreItems/Packages/OperatorDrifterDexBundle"] }
+                },
+                {
+                    Node: "EventNode26",
+                    MissionKeyName: "/Lotus/Types/Keys/TacAlertKeyAnniversary2024ChallengeModeB",
+                    Tag: "Anniversary2024TacAlertCMB",
+                    Reward: { items: ["/Lotus/StoreItems/Types/Recipes/Components/UmbraFormaBlueprint"] }
+                }
+            ],
+            [
+                {
+                    Node: "EventNode37",
+                    MissionKeyName: "/Lotus/Types/Keys/TacAlertKeyAnniversary2021I",
+                    Tag: "Anniversary2021TacAlert",
+                    Reward: {
+                        items: [
+                            "/Lotus/StoreItems/Upgrades/Skins/Armor/Dex2020Armor/Dex2020ArmorAArmor",
+                            "/Lotus/StoreItems/Upgrades/Skins/Armor/Dex2020Armor/Dex2020ArmorCArmor",
+                            "/Lotus/StoreItems/Upgrades/Skins/Armor/Dex2020Armor/Dex2020ArmorLArmor",
+                            "/Lotus/StoreItems/Types/Game/CatbrowPet/CatbrowGeneticSignature"
+                        ],
+                        countedItems: [
+                            { ItemType: "/Lotus/Types/Game/CatbrowPet/CatbrowGeneticSignature", ItemCount: 10 }
+                        ]
+                    }
+                },
+                {
+                    Node: "EventNode9",
+                    MissionKeyName: "/Lotus/Types/Keys/TacAlertKeyAnniversary2025B",
+                    Tag: "Anniversary2025TacAlert",
+                    Reward: {
+                        items: ["/Lotus/StoreItems/Types/StoreItems/SuitCustomizations/ColourPickerAnniversaryEleven"]
+                    }
+                }
+            ]
+        ];
+        goalsByWeek[config.worldState.anniversary].forEach((goal, i) => {
+            worldState.Goals.push({
+                _id: {
+                    $oid:
+                        "67c6d8e725b23feb" +
+                        config.worldState?.anniversary!.toString(16).padStart(4, "0") +
+                        i.toString(16).padStart(4, "0")
+                },
+                Activation: toMongoDate2(1745593200000, buildVersion),
+                Expiry: toMongoDate2(2000000000000, buildVersion),
+                Count: 0,
+                Goal: 1,
+                Success: 0,
+                Personal: true,
+                ClampNodeScores: true,
+                Node: goal.Node,
+                MissionKeyName: goal.MissionKeyName,
+                Desc: goal.Tag!.endsWith("CMB")
+                    ? "/Lotus/Language/Events/Anniversary2024ChallengeMode"
+                    : "/Lotus/Language/G1Quests/Anniversary2017MissionTitle",
+                Icon: "/Lotus/Interface/Icons/Player/GlyphLotus12Anniversary.png",
+                Tag: goal.Tag!,
+                Reward: goal.Reward
+            });
+        });
+    }
+
+    if (config.worldState?.wolfHunt != undefined && buildVersion >= gameToBuildVersionInt["25.0.0"]) {
+        if (config.worldState.wolfHunt == 0) {
+            worldState.Goals.push({
+                _id: toOid2("67ed7672798d6466172e3b9c", buildVersion),
+                Activation: { $date: { $numberLong: "1743616800000" } },
+                Expiry: { $date: { $numberLong: "2000000000000" } },
+                Count: 0,
+                Goal: 1,
+                BonusGoal: 2,
+                Success: 0,
+                Personal: true,
+                Bounty: true,
+                ClampNodeScores: true,
+                Node: "EventNode29",
+                ConcurrentMissionKeyNames: ["/Lotus/Types/Keys/WolfTacAlertB"],
+                ConcurrentNodeReqs: [1],
+                ConcurrentNodes: ["EventNode28"], // Incompatible with Galleon Of Ghouls, Orphix Venom, Warframe Anniversary
+                MissionKeyName: "/Lotus/Types/Keys/WolfTacAlertA",
+                Faction: "FC_GRINEER",
+                Desc: "/Lotus/Language/Alerts/WolfAlert",
+                Icon: "/Lotus/Interface/Icons/Npcs/Seasonal/WolfStalker.png",
+                Tag: "WolfHuntRedux", // unfaithful
+                Reward: {
+                    countedItems: [{ ItemType: "/Lotus/Types/Items/MiscItems/Alertium", ItemCount: 10 }]
+                },
+                BonusReward: {
+                    items: [
+                        "/Lotus/StoreItems/Upgrades/Mods/Randomized/RawRifleRandomMod",
+                        "/Lotus/StoreItems/Upgrades/Skins/Clan/BountyHunterBadgeItem"
+                    ]
+                }
+            });
+        } else if (config.worldState.wolfHunt == 1) {
+            worldState.Goals.push({
+                _id: toOid2("67ed7672798d6466172e3b9d", buildVersion),
+                Activation: { $date: { $numberLong: "1743616800000" } },
+                Expiry: { $date: { $numberLong: "2000000000000" } },
+                Count: 0,
+                Goal: 3,
+                InterimGoals: [1, 2],
+                BonusGoal: 4,
+                Success: 0,
+                Personal: true,
+                Bounty: true,
+                ClampNodeScores: true,
+                Node: "EventNode29",
+                ConcurrentMissionKeyNames: [
+                    "/Lotus/Types/Keys/WolfTacAlertReduxB",
+                    "/Lotus/Types/Keys/WolfTacAlertReduxC",
+                    "/Lotus/Types/Keys/WolfTacAlertReduxD"
+                ],
+                ConcurrentNodeReqs: [1, 2, 3],
+                ConcurrentNodes: ["EventNode28", "EventNode39", "EventNode40"], // Incompatible with Galleon Of Ghouls, Orphix Venom, Warframe Anniversary
+                MissionKeyName: "/Lotus/Types/Keys/WolfTacAlertReduxA",
+                Faction: "FC_GRINEER",
+                Desc: "/Lotus/Language/Alerts/WolfAlert",
+                Icon: "/Lotus/Interface/Icons/Npcs/Seasonal/WolfStalker.png",
+                Tag: "WolfHuntRedux",
+                InterimRewards: [
+                    {
+                        credits: 50000,
+                        items: ["/Lotus/StoreItems/Types/Recipes/Weapons/WeaponParts/ThrowingHammerHandle"]
+                    },
+                    {
+                        credits: 50000,
+                        items: ["/Lotus/StoreItems/Types/Recipes/Weapons/WeaponParts/ThrowingHammerHead"]
+                    }
+                ],
+                Reward: {
+                    credits: 50000,
+                    items: ["/Lotus/StoreItems/Types/Recipes/Weapons/WeaponParts/ThrowingHammerMotor"]
+                },
+                BonusReward: {
+                    credits: 50000,
+                    items: [
+                        "/Lotus/StoreItems/Types/Recipes/Weapons/ThrowingHammerBlueprint",
+                        "/Lotus/StoreItems/Types/Items/MiscItems/OrokinCatalyst",
+                        "/Lotus/StoreItems/Upgrades/Skins/Clan/BountyHunterBadgeItem"
+                    ]
+                }
+            });
+        }
+    }
+
+    const tagsForOlderGoals: string[] = [
+        "Anniversary2018TacAlert",
+        "Anniversary2019TacAlert",
+        "Anniversary2020TacAlert",
+        "Anniversary2021TacAlert",
+        "Anniversary2022TacAlert",
+        "Anniversary2024TacAlert",
+        "Anniversary2024TacAlertCMA",
+        "Anniversary2025TacAlert",
+        "Anniversary2025TacAlertCMB"
+    ];
+
+    if (config.worldState?.hallowedFlame && buildVersion >= gameToBuildVersionInt["26.0.0"]) {
+        worldState.Goals.push(
+            {
+                _id: toOid2("5db305403d34b5158873519a", buildVersion),
+                Activation: toMongoDate2(1699372800000, buildVersion),
+                Expiry: toMongoDate2(2000000000000, buildVersion),
+                Count: 0,
+                Goal: 3,
+                InterimGoals: [1, 2],
+                Success: 0,
+                Personal: true,
+                Bounty: true,
+                ClampNodeScores: true,
+                Node: "EventNode24", // Incompatible with Hallowed Nightmares, Dog Days
+                ConcurrentMissionKeyNames: [
+                    "/Lotus/Types/Keys/LanternEndlessEventKeyB",
+                    "/Lotus/Types/Keys/LanternEndlessEventKeyC"
+                ],
+                ConcurrentNodeReqs: [1, 2],
+                ConcurrentNodes: ["EventNode25", "EventNode34"], // Incompatible with Hallowed Nightmares, Dog Days
+                MissionKeyName: "/Lotus/Types/Keys/LanternEndlessEventKeyA",
+                Faction: "FC_INFESTATION",
+                Desc: "/Lotus/Language/Events/TacAlertHalloweenLantern",
+                Icon: "/Lotus/Interface/Icons/JackOLanternColour.png",
+                Tag: changeLegacyTags ? tagsForOlderGoals[0] : "Halloween19",
+                InterimRewards: [
+                    { items: ["/Lotus/StoreItems/Types/Items/MiscItems/OrokinCatalyst"] },
+                    { items: ["/Lotus/StoreItems/Types/Items/MiscItems/Forma"] }
+                ],
+                Reward: {
+                    items: ["/Lotus/StoreItems/Types/Items/MiscItems/FormaAura"]
+                }
+            },
+            {
+                _id: toOid2("5db3054a3d34b5158873519c", buildVersion),
+                Activation: toMongoDate2(1699372800000, buildVersion),
+                Expiry: toMongoDate2(2000000000000, buildVersion),
+                Count: 0,
+                Goal: 900,
+                Success: 0,
+                Personal: true,
+                Bounty: true,
+                Best: true,
+                ClampNodeScores: true,
+                Node: "EventNode35",
+                MissionKeyName: "/Lotus/Types/Keys/LanternEndlessEventKeyD",
+                Faction: "FC_INFESTATION",
+                Desc: "/Lotus/Language/Events/TacAlertHalloweenLanternEndless",
+                Icon: "/Lotus/Interface/Icons/JackOLanternColour.png",
+                Tag: "Halloween19Endless",
+                PrereqGoalTags: [changeLegacyTags ? tagsForOlderGoals[0] : "Halloween19"],
+                Reward: {
+                    items: [
+                        "/Lotus/StoreItems/Upgrades/Skins/Effects/BatsEphemera",
+                        "/Lotus/StoreItems/Upgrades/Skins/Clan/BountyHunterBadgeItem"
+                    ]
+                },
+                ScoreVar: "EndlessMissionTimeElapsed",
+                ScoreMaxTag: "Halloween19ScoreMax"
+            }
+        );
+    }
+
+    if (config.worldState?.hallowedNightmares && buildVersion >= gameToBuildVersionInt["18.0.2"]) {
+        const rewards = [
+            // 2018
+            [
+                {
+                    items: ["/Lotus/StoreItems/Upgrades/Skins/Sigils/DotD2016Sigil"]
+                },
+                {
+                    items: ["/Lotus/StoreItems/Upgrades/Skins/Halloween/HalloweenDread"]
+                },
+                {
+                    items: ["/Lotus/StoreItems/Types/Items/MiscItems/OrokinReactor"]
+                }
+            ],
+            // 2016
+            [
+                {
+                    items: ["/Lotus/StoreItems/Types/Items/MiscItems/OrokinCatalyst"]
+                },
+                {
+                    items: [
+                        "/Lotus/StoreItems/Upgrades/Skins/Sigils/DotD2016Sigil",
+                        "/Lotus/StoreItems/Upgrades/Skins/Clan/BountyHunterBadgeItem"
+                    ]
+                },
+                {
+                    items: ["/Lotus/StoreItems/Types/Items/MiscItems/OrokinReactor"]
+                }
+            ],
+            // 2015
+            [
+                {
+                    items: ["/Lotus/StoreItems/Types/Items/MiscItems/OrokinCatalyst"]
+                },
+                {
+                    items: ["/Lotus/StoreItems/Upgrades/Skins/Clan/BountyHunterBadgeItem"]
+                }
+            ]
+        ];
+        const year = config.worldState.hallowedNightmaresRewardsOverride ?? 0;
+
+        worldState.Goals.push({
+            _id: { $oid: "5bc98f00000000000000000" + year.toString(16) },
+            Activation: toMongoDate2(1539972000000, buildVersion),
+            Expiry: toMongoDate2(2000000000000, buildVersion),
+            Count: 0,
+            InterimGoals: [1],
+            Goal: 2,
+            Success: 0,
+            Personal: true,
+            Bounty: true,
+            Tag: changeLegacyTags ? tagsForOlderGoals[0] : "Halloween",
+            Faction: "FC_INFESTATION",
+            Desc: "/Lotus/Language/G1Quests/TacAlertHalloweenTitle",
+            ToolTip: "/Lotus/Language/G1Quests/TacAlertHalloweenToolTip",
+            Icon: "/Lotus/Interface/Icons/JackOLanternColour.png",
+            ClampNodeScores: true,
+            Node: "EventNode2", // Incompatible with Warframe Anniversary
+            MissionKeyName: "/Lotus/Types/Keys/TacAlertKeyHalloween",
+            ConcurrentMissionKeyNames: ["/Lotus/Types/Keys/TacAlertKeyHalloweenBonus"],
+            ConcurrentNodeReqs: [1],
+            ConcurrentNodes: ["EventNode24"], // Incompatible with Hallowed Flame, Dog Days, Warframe Anniversary
+            InterimRewards: [rewards[year][0]],
+            Reward: rewards[year][1]
+        });
+        if (year != 2) {
+            worldState.Goals.push({
+                _id: { $oid: "5bc98f01000000000000000" + year.toString(16) },
+                Activation: toMongoDate2(1539972000000, buildVersion),
+                Expiry: toMongoDate2(2000000000000, buildVersion),
+                Count: 0,
+                Goal: 666,
+                Success: 0,
+                Personal: true,
+                Bounty: true,
+                Best: true,
+                Tag: "Halloween",
+                PrereqGoalTags: [changeLegacyTags ? tagsForOlderGoals[0] : "Halloween"],
+                Faction: "FC_INFESTATION",
+                Desc: "Hallowed Nightmares - Time Attack",
+                ToolTip: "/Lotus/Language/G1Quests/TacAlertHalloweenToolTip",
+                Icon: "/Lotus/Interface/Icons/JackOLanternColour.png",
+                ClampNodeScores: true,
+                Node: "EventNode25", // Incompatible with Hallowed Flame, Dog Days
+                MissionKeyName: "/Lotus/Types/Keys/TacAlertKeyHalloweenTimeAttack",
+                ScoreVar: "TimeAttackScore",
+                ScoreMaxTag: "Halloween16",
+                Reward: rewards[year][2]
+            });
+        }
+    }
+
+    if (config.worldState?.proxyRebellion && buildVersion >= gameToBuildVersionInt["23.2.0"]) {
+        const rewards = [
+            // 2019
+            [
+                {
+                    credits: 50000,
+                    items: ["/Lotus/StoreItems/Types/Items/MiscItems/UtilityUnlocker"]
+                },
+                {
+                    credits: 50000,
+                    items: ["/Lotus/StoreItems/Upgrades/Mods/Randomized/RawPistolRandomMod"]
+                },
+                {
+                    credits: 50000,
+                    items: ["/Lotus/Types/StoreItems/Packages/EventCatalystReactorBundle"]
+                },
+                {
+                    items: [
+                        "/Lotus/StoreItems/Upgrades/Skins/Scarves/HornSkullScarf",
+                        "/Lotus/StoreItems/Upgrades/Skins/Clan/BountyHunterBadgeItem"
+                    ]
+                }
+            ],
+            // 2018
+            [
+                {
+                    credits: 50000,
+                    items: ["/Lotus/StoreItems/Upgrades/Mods/FusionBundles/NightwatchFusionBundle"]
+                },
+                {
+                    credits: 50000,
+                    items: ["/Lotus/StoreItems/Types/Items/MiscItems/UtilityUnlocker"]
+                },
+                {
+                    credits: 50000,
+                    items: ["/Lotus/Types/StoreItems/Packages/EventCatalystReactorBundle"]
+                },
+                {
+                    items: [
+                        "/Lotus/StoreItems/Upgrades/Skins/Sigils/EnergySigilA",
+                        "/Lotus/StoreItems/Upgrades/Skins/Clan/BountyHunterBadgeItem"
+                    ]
+                }
+            ]
+        ];
+        const year = config.worldState.proxyRebellionRewardsOverride ?? 0;
+
+        worldState.Goals.push({
+            _id: { $oid: "5b5b5da0000000000000000" + year.toString(16) },
+            Activation: toMongoDate2(1532714400000, buildVersion),
+            Expiry: toMongoDate2(2000000000000, buildVersion),
+            Count: 0,
+            Goal: 3,
+            InterimGoals: [1, 2],
+            BonusGoal: 4,
+            Success: 0,
+            Personal: true,
+            Bounty: true,
+            ClampNodeScores: true,
+            Node: "EventNode18", // Incompatible with Warframe Anniversary
+            ConcurrentMissionKeyNames: [
+                "/Lotus/Types/Keys/TacAlertKeyProxyRebellionTwo",
+                "/Lotus/Types/Keys/TacAlertKeyProxyRebellionThree",
+                "/Lotus/Types/Keys/TacAlertKeyProxyRebellionFour"
+            ],
+            ConcurrentNodeReqs: [1, 2, 3],
+            ConcurrentNodes: ["EventNode7", "EventNode4", "EventNode17"], // Incompatible with Orphix venom, Warframe Anniversary
+            MissionKeyName: "/Lotus/Types/Keys/TacAlertKeyProxyRebellionOne",
+            Faction: "FC_CORPUS",
+            Desc: "/Lotus/Language/Alerts/TacAlertProxyRebellion",
+            Icon: "/Lotus/Materials/Emblems/BountyBadge_e.png",
+            Tag: changeLegacyTags ? tagsForOlderGoals[1] : "ProxyRebellion",
+            InterimRewards: rewards[year].slice(0, 2),
+            Reward: rewards[year][2],
+            BonusReward: rewards[year][3]
+        });
+    }
+
+    if (config.worldState?.longShadow && buildVersion >= gameToBuildVersionInt["18.22.1"]) {
+        worldState.Goals.push({
+            _id: toOid2("5bc9e8f7272d5d184c8398c9", buildVersion),
+            Activation: toMongoDate2(1539972000000, buildVersion),
+            Expiry: toMongoDate2(2000000000000, buildVersion),
+            Count: 0,
+            InterimGoals: [1, 2],
+            Goal: 3,
+            BonusGoal: 4,
+            Success: 0,
+            Personal: true,
+            Bounty: true,
+            Tag: changeLegacyTags ? tagsForOlderGoals[2] : "NightwatchTacAlert",
+            Faction: "FC_GRINEER",
+            Desc: "/Lotus/Language/G1Quests/ProjectNightwatchTacAlertTitle",
+            Icon: "/Lotus/Materials/Emblems/BountyBadge_e.png",
+            ClampNodeScores: true,
+            Node: "EventNode9", // Incompatible with Warframe Anniversary
+            MissionKeyName: "/Lotus/Types/Keys/TacAlertKeyProjectNightwatchEasy",
+            ConcurrentMissionKeyNames: [
+                "/Lotus/Types/Keys/TacAlertKeyProjectNightwatch",
+                "/Lotus/Types/Keys/TacAlertKeyProjectNightwatchHard",
+                "/Lotus/Types/Keys/TacAlertKeyProjectNightwatchBonus"
+            ],
+            ConcurrentNodeReqs: [1, 2, 3],
+            ConcurrentNodes: ["SolNode136", "EventNode3", "EventNode0"],
+            InterimRewards: [
+                {
+                    credits: 50000,
+                    countedItems: [
+                        { ItemType: "/Lotus/Upgrades/Mods/FusionBundles/RareFusionBundle", ItemCount: 10 } // Not sure about that
+                    ]
+                },
+                {
+                    items: ["/Lotus/StoreItems/Types/Items/MiscItems/UtilityUnlocker"]
+                }
+            ],
+            Reward: {
+                items: ["/Lotus/Types/StoreItems/Packages/EventCatalystReactorBundle"]
+            },
+            BonusReward: { items: ["/Lotus/StoreItems/Upgrades/Skins/Clan/BountyHunterBadgeItem"] }
+        });
+    }
+
+    const isOctober = date.getUTCMonth() == 9; // October = month index 9
+    if ((config.worldState?.naberusNightsOverride ?? isOctober) && buildVersion >= gameToBuildVersionInt["29.3.1"]) {
+        const activation = config.worldState?.naberusNightsOverride
+            ? 1727881200000
+            : Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1);
+
+        const expiry = config.worldState?.naberusNightsOverride
+            ? 2000000000000
+            : Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1);
+
+        worldState.Goals.push({
+            _id: toOid2("66fd602de1778d583419e8e7", buildVersion),
+            Activation: { $date: { $numberLong: activation.toString() } },
+            Expiry: { $date: { $numberLong: expiry.toString() } },
+            Count: 0,
+            Goal: 0,
+            Success: 0,
+            Personal: true,
+            Desc: "/Lotus/Language/Events/HalloweenNaberusName",
+            ToolTip: "/Lotus/Language/Events/HalloweenNaberusDesc",
+            Icon: "/Lotus/Interface/Icons/JackOLanternColour.png",
+            Tag: "DeimosHalloween",
+            Node: "DeimosHub"
+        });
+
+        pushFlashSales(worldState, naberusNightsFlashSales, activation, expiry, "SEASONAL", buildVersion);
+    }
+
+    if (config.worldState?.bellyOfTheBeast && buildVersion >= gameToBuildVersionInt["36.0.0"]) {
+        worldState.Goals.push({
+            _id: toOid2("67a5035c2a198564d62e165e", buildVersion),
+            Activation: toMongoDate2(1738868400000, buildVersion),
+            Expiry: toMongoDate2(2000000000000, buildVersion),
+            Count: config.worldState.bellyOfTheBeastProgressOverride ?? 0,
+            HealthPct: (config.worldState.bellyOfTheBeastProgressOverride ?? 0) / 100,
+            Goal: 0,
+            Personal: true,
+            Community: true,
+            ClanGoal: [72, 216, 648, 1944, 5832],
+            Tag: "JadeShadowsEvent",
+            Faction: "FC_MITW",
+            Desc: "/Lotus/Language/JadeShadows/JadeShadowsEventName",
+            ToolTip: "/Lotus/Language/JadeShadows/JadeShadowsShortEventDesc",
+            Icon: "/Lotus/Interface/Icons/WorldStatePanel/JadeShadowsEventBadge.png",
+            ScoreLocTag: "/Lotus/Language/JadeShadows/JadeShadowsEventScore",
+            Node: "SolNode723",
+            MissionKeyName: "/Lotus/Types/Keys/JadeShadowsEventMission",
+            ItemType: "/Lotus/Types/Gameplay/JadeShadows/Resources/AscensionEventResourceItem"
+        });
+        pushGoalAlerts(worldState, "JadeShadows", buildVersion);
+    }
+
+    if (config.worldState?.operationAtramentum && buildVersion >= gameToBuildVersionInt["42.0.0"]) {
+        worldState.Goals.push({
+            _id: toOid2("69ce8b780000000000000000", buildVersion),
+            Activation: toMongoDate2(1738868400000, buildVersion),
+            Expiry: toMongoDate2(2000000000000, buildVersion),
+            Count: config.worldState.operationAtramentumProgressOverride ?? 0,
+            HealthPct: (config.worldState.operationAtramentumProgressOverride ?? 0) / 100,
+            Goal: 0,
+            Personal: true,
+            Community: true,
+            ClanGoal: [72, 216, 648, 1944, 5832],
+            Tag: "ShadowgrapherEvent",
+            Faction: "FC_TENNO",
+            Desc: "/Lotus/Language/Shadowgrapher/ShadowgrapherEventName",
+            ToolTip: "/Lotus/Language/Shadowgrapher/ShadowgrapherShortEventDesc",
+            Icon: "/Lotus/Interface/Icons/WorldStatePanel/OperationAntramentumIcon.png",
+            ScoreLocTag: "/Lotus/Language/Shadowgrapher/ShadowgrapherEventScore",
+            Node: "SolNode239",
+            MissionKeyName: "/Lotus/Types/Keys/ShadowgrapherEventMission",
+            ItemType: "/Lotus/Types/Gameplay/Shadowgrapher/Resources/ShadowgrapherEventResource"
+        });
+    }
+
+    // <U39
+    if (config.worldState?.eightClaw && buildVersion >= gameToBuildVersionInt["39.0.0"]) {
+        worldState.Goals.push({
+            _id: toOid2("685c15f80000000000000000", buildVersion),
+            Activation: toMongoDate2(1750865400000, buildVersion),
+            Expiry: toMongoDate2(2000000000000, buildVersion),
+            Count: config.worldState.eightClawProgressOverride ?? 0,
+            HealthPct: (config.worldState.eightClawProgressOverride ?? 0) / 100,
+            Goal: 0,
+            Personal: true,
+            Community: true,
+            ClanGoal: [72, 216, 648, 1944, 5832],
+            Tag: "DuviriMurmurEvent",
+            Faction: "FC_MITW",
+            Desc: "/Lotus/Language/Isleweaver/DuviriMurmurEventTitle",
+            ToolTip: "/Lotus/Language/Isleweaver/DuviriMurmurEventDescription",
+            Icon: "/Lotus/Interface/Icons/WorldStatePanel/EightClawEventBadge.png",
+            ScoreLocTag: "/Lotus/Language/Isleweaver/DuviriMurmurEventScore",
+            Node: "SolNode236",
+            MissionKeyName: "/Lotus/Types/Keys/DuviriMITW/DuviriMITWEventKey"
+        });
+    }
+
+    if (config.worldState?.scarletSpear && buildVersion >= gameToBuildVersionInt["27.3.0"]) {
+        worldState.Goals.push({
+            _id: toOid2("5e7a3e2389e3090b0c6a998b", buildVersion),
+            Activation: { $date: { $numberLong: "1585070400000" } },
+            Expiry: { $date: { $numberLong: "2000000000000" } },
+            Node: "ScenarioEventHub5",
+            Desc: "/Lotus/Language/G1Quests/FlotillaOperation",
+            Icon: "/Lotus/Interface/Graphics/ScarletSpear/ScarletSpearIcon.png",
+            Tag: "SquadLinkEvent",
+            ScoreVar: "ScenarioScore",
+            Personal: true,
+            Metadata:
+                '{"progressReq":100,"duration":180,"cooldown":10,"groundTiers":[1000,3000,5000],"spaceTiers":[1000,3000,5000]}',
+            CompletionBonus: [0, 2000, 6000, 10000],
+            InterimGoals: [10000, 30000],
+            InterimRewards: [
+                { items: ["/Lotus/StoreItems/Upgrades/Skins/Clan/ScarletSpear/ScarletSpearOperationIEmblem"] },
+                { items: ["/Lotus/StoreItems/Upgrades/Skins/Clan/ScarletSpear/ScarletSpearOperationIIEmblem"] }
+            ],
+            Goal: 50000,
+            Reward: {
+                items: ["/Lotus/StoreItems/Upgrades/Skins/Clan/ScarletSpear/ScarletSpearOperationIIIEmblem"]
+            },
+            AltExpiry: { $date: { $numberLong: "2000000000000" } },
+            AltActivation: { $date: { $numberLong: "2000000000000" } },
+            EpochNum: 114,
+            NextAltActivation: { $date: { $numberLong: "2000000000000" } },
+            NextAltExpiry: { $date: { $numberLong: "2000000000000" } },
+            PauseAutoScheduling: true
+        });
+    }
+
+    if (config.worldState?.orphixVenom && buildVersion >= gameToBuildVersionInt["29.6.8"]) {
+        worldState.Goals.push(
+            {
+                _id: toOid2("5fdcccb875d5ad500dc477d0", buildVersion),
+                Activation: toMongoDate2(1608320400000, buildVersion),
+                Expiry: toMongoDate2(2000000000000, buildVersion),
+                Count: 0,
+                Goal: 500,
+                Success: 0,
+                Personal: true,
+                Best: true,
+                Node: "EventNode17", // Incompatible with Proxy Rebellion
+                MissionKeyName: "/Lotus/Types/Keys/MechSurvivalCorpusShip",
+                Faction: "FC_SENTIENT",
+                Desc: "/Lotus/Language/Events/MechEventMissionTier1",
+                Icon: "/Lotus/Interface/Icons/Categories/IconMech256.png",
+                Tag: "MechSurvivalA",
+                ScoreVar: "MechSurvivalScore",
+                Reward: { items: ["/Lotus/StoreItems/Upgrades/Skins/Clan/MechEventEmblemItem"] }
+            },
+            {
+                _id: toOid2("5fdcccb875d5ad500dc477d1", buildVersion),
+                Activation: toMongoDate2(1608320400000, buildVersion),
+                Expiry: toMongoDate2(2000000000000, buildVersion),
+                Count: 0,
+                Goal: 1000,
+                Success: 0,
+                Personal: true,
+                Best: true,
+                Node: "EventNode28", // Incompatible with Galleon Of Ghouls, Wolf Hunt
+                MissionKeyName: "/Lotus/Types/Keys/MechSurvivalGrineerGalleon",
+                Faction: "FC_SENTIENT",
+                Desc: "/Lotus/Language/Events/MechEventMissionTier2",
+                Icon: "/Lotus/Interface/Icons/Categories/IconMech256.png",
+                Tag: "MechSurvivalB",
+                PrereqGoalTags: ["MechSurvivalA"],
+                ScoreVar: "MechSurvivalScore",
+                Reward: { items: ["/Lotus/StoreItems/Types/Items/FusionTreasures/OroFusexJ"] }
+            },
+            {
+                _id: toOid2("5fdcccb875d5ad500dc477d2", buildVersion),
+                Activation: toMongoDate2(1608320400000, buildVersion),
+                Expiry: toMongoDate2(2000000000000, buildVersion),
+                Count: 0,
+                Goal: 2000,
+                Success: 0,
+                Personal: true,
+                Best: true,
+                Node: "EventNode32",
+                MissionKeyName: "/Lotus/Types/Keys/MechSurvivalGasCity",
+                MissionKeyRotation: [
+                    "/Lotus/Types/Keys/MechSurvivalGasCity",
+                    "/Lotus/Types/Keys/MechSurvivalCorpusShipEndurance",
+                    "/Lotus/Types/Keys/MechSurvivalGrineerGalleonEndurance"
+                ],
+                MissionKeyRotationInterval: 3600, // 1 hour
+                Faction: "FC_SENTIENT",
+                Desc: "/Lotus/Language/Events/MechEventMissionTier3",
+                Icon: "/Lotus/Interface/Icons/Categories/IconMech256.png",
+                Tag: "MechSurvival",
+                PrereqGoalTags: ["MechSurvivalA", "MechSurvivalB"],
+                ScoreVar: "MechSurvivalScore",
+                ScoreMaxTag: "MechSurvivalScoreMax",
+                Reward: {
+                    items: [
+                        "/Lotus/StoreItems/Types/Items/MiscItems/FormaAura",
+                        "/Lotus/StoreItems/Upgrades/Skins/Necramech/MechWeapon/MechEventMausolonSkin"
+                    ]
+                }
+            }
+        );
+    }
+
+    if (config.worldState?.bloodOfPerita && buildVersion >= gameToBuildVersionInt["41.0.0"]) {
+        worldState.Goals.push({
+            _id: toOid2("694189080000000000000000", buildVersion),
+            Activation: toMongoDate2(1765902600000, buildVersion),
+            Expiry: toMongoDate2(2000000000000, buildVersion),
+            GracePeriod: { $date: { $numberLong: "2000000000000" } },
+            Count: 0,
+            Goal: 0,
+            Success: 0,
+            Personal: true,
+            Desc: "/Lotus/Language/TauPrequel/TauPrequelFinal/TauPrequelEventName",
+            ToolTip: "/Lotus/Language/TauPrequel/TauPrequelFinal/BloodOfPeritaDetails",
+            Icon: "/Lotus/Interface/Icons/WorldStatePanel/BloodOfPeritaEventBadgeSmall.png",
+            Tag: "12MinWarEvent",
+            Node: "SolNode251"
+        });
+        pushGoalAlerts(worldState, "12MinWarEvent", buildVersion);
+    }
+
+    if (config.worldState?.lunarNewYear) {
+        const reapeingItems: Record<string, (Partial<IFlashSale> & { TypeName: string })[]> = {
+            "2022": [
+                { TypeName: "/Lotus/Types/Items/ShipDecos/Plushies/PlushyTiger", PremiumOverride: 35 },
+                {
+                    TypeName: "/Lotus/Upgrades/Skins/LunarNewYear/Lunar2022HeavyBladeSkin",
+                    PremiumOverride: 45
+                },
+                { TypeName: "/Lotus/Upgrades/Skins/MeleeDangles/LNYCarpSugatra", PremiumOverride: 15 },
+                {
+                    TypeName: "/Lotus/Upgrades/Skins/LunarNewYear/Lunar2022IgnisSkin",
+                    PremiumOverride: 25
+                },
+                { TypeName: "/Lotus/Upgrades/Skins/LunarNewYear/Lunar2022Zarr", PremiumOverride: 25 },
+                { TypeName: "/Lotus/Upgrades/Skins/Kubrows/Armor/Lunar2022KubrowArmor", PremiumOverride: 25 },
+                { TypeName: "/Lotus/Upgrades/Skins/Effects/PeachBlossomsEphemera", PremiumOverride: 60 },
+                { TypeName: "/Lotus/Types/Items/ShipDecos/CNY2021Poster", RegularOverride: 1 },
+                { TypeName: "/Lotus/Types/StoreItems/AvatarImages/ChineseNewYear2021Glyph", RegularOverride: 1 },
+                { TypeName: "/Lotus/Types/Items/ShipDecos/WeGame/LuckyKavat", PremiumOverride: 35 },
+                { TypeName: "/Lotus/Types/Items/ShipDecos/WeGame/LuckyKavatWhite", PremiumOverride: 35 },
+                { TypeName: "/Lotus/Types/Items/ShipDecos/WeGame/LuckyKavatGold", PremiumOverride: 35 },
+                { TypeName: "/Lotus/Upgrades/Skins/LunarNewYear/Lunar2020AcceltraSkin", PremiumOverride: 25 },
+                { TypeName: "/Lotus/Upgrades/Skins/LunarNewYear/Lunar2020OrthosSkin", PremiumOverride: 20 },
+                { TypeName: "/Lotus/Upgrades/Skins/LunarNewYear/Lunar2020PyranaSkin", PremiumOverride: 25 },
+                { TypeName: "/Lotus/Upgrades/Skins/Promo/WeGame/WeGameMacheteSkin", PremiumOverride: 25 },
+                { TypeName: "/Lotus/Upgrades/Skins/MeleeDangles/WegameChinaKnotDangle", PremiumOverride: 15 },
+                { TypeName: "/Lotus/Upgrades/Skins/LunarNewYear/Lunar2020PyranaSkin", PremiumOverride: 25 }
+            ],
+            "2023": [
+                { TypeName: "/Lotus/Types/Items/ShipDecos/Plushies/PlushyLNY2023Rabbit", PremiumOverride: 35 },
+                {
+                    TypeName: "/Lotus/Upgrades/Skins/LunarNewYear/Lunar2023CedoSkin",
+                    PremiumOverride: 25
+                },
+                { TypeName: "/Lotus/Upgrades/Skins/Sigils/WeGameNewYearTigerSigil", PremiumOverride: 40 },
+                { TypeName: "/Lotus/Upgrades/Skins/Sigils/WeGameNewYearRabbitSigil", PremiumOverride: 40 },
+                { TypeName: "/Lotus/Interface/Graphics/CustomUI/LunarNewYearStyle", PremiumOverride: 50 },
+                {
+                    TypeName: "/Lotus/Interface/Graphics/CustomUI/Backgrounds/SpringFestivalBackground",
+                    PremiumOverride: 50
+                },
+                {
+                    TypeName: "/Lotus/Upgrades/Skins/LunarNewYear/Lunar2023NagantakaSkin",
+                    PremiumOverride: 25
+                },
+                { TypeName: "/Lotus/Upgrades/Skins/Effects/LunarEphemera", PremiumOverride: 60 },
+                {
+                    TypeName: "/Lotus/Upgrades/Skins/LunarNewYear/Lunar2023CernosSkin",
+                    PremiumOverride: 25
+                },
+                { TypeName: "/Lotus/Types/Items/Emotes/LNY2023Emote", PremiumOverride: 25 }
+            ],
+            "2024": [
+                { TypeName: "/Lotus/Types/Items/ShipDecos/Plushies/PlushyLNY2024Dragon", PremiumOverride: 35 },
+                {
+                    TypeName: "/Lotus/Upgrades/Skins/LunarNewYear/LNY2024Nukor",
+                    PremiumOverride: 25
+                },
+                { TypeName: "/Lotus/Upgrades/Skins/LunarNewYear/LNY2024DragonSigil", PremiumOverride: 40 },
+                {
+                    TypeName: "/Lotus/Upgrades/Skins/LunarNewYear/LNYHookSword",
+                    PremiumOverride: 75
+                },
+                {
+                    TypeName: "/Lotus/Upgrades/Skins/MeleeDangles/LNYBirdSugatra",
+                    PremiumOverride: 15
+                },
+                { TypeName: "/Lotus/Upgrades/Skins/Effects/LNYDragonEphemera", PremiumOverride: 60 },
+                {
+                    TypeName: "/Lotus/Upgrades/Skins/LunarNewYear/LNY2024Ogris",
+                    PremiumOverride: 25
+                },
+                { TypeName: "/Lotus/Types/Items/Emotes/LNY2024DragonEmote", PremiumOverride: 25 },
+                { TypeName: "/Lotus/Upgrades/Skins/Sentinels/Skins/LNYDragonSentinelSkin", PremiumOverride: 85 },
+                { TypeName: "/Lotus/Upgrades/Skins/Sentinels/Masks/LNYDragonMask", PremiumOverride: 30 },
+                { TypeName: "/Lotus/Upgrades/Skins/Sentinels/Wings/LNYDragonWings", PremiumOverride: 15 },
+                { TypeName: "/Lotus/Upgrades/Skins/Sentinels/Tails/LNYDragonTail", PremiumOverride: 15 }
+            ],
+            "2025": [
+                { TypeName: "/Lotus/Types/Items/ShipDecos/Plushies/PlushySnake", PremiumOverride: 35 },
+                { TypeName: "/Lotus/Types/Items/ShipDecos/Plushies/PlushyLNYMirage", PremiumOverride: 35 },
+                {
+                    TypeName: "/Lotus/Upgrades/Skins/LunarNewYear/CNY2025ScytheSkin",
+                    PremiumOverride: 25
+                },
+                {
+                    TypeName: "/Lotus/Upgrades/Skins/LunarNewYear/LNY2025BoltorSkin",
+                    PremiumOverride: 20
+                },
+                {
+                    TypeName: "/Lotus/StoreItems/Upgrades/Skins/Catbrows/Armor/LNYKavatBoltorArmor",
+                    PremiumOverride: 90
+                },
+                { TypeName: "/Lotus/Upgrades/Skins/Effects/LNYStonesEphemera", PremiumOverride: 60 },
+                { TypeName: "/Lotus/Upgrades/Skins/Sigils/WeGameNewYearSnakeSigil", PremiumOverride: 40 },
+                {
+                    TypeName: "/Lotus/Upgrades/Skins/MeleeDangles/LNYSnakeMeleeDangle",
+                    PremiumOverride: 15
+                },
+                { TypeName: "/Lotus/Types/Items/Emotes/LNY2025SnakeEmote", PremiumOverride: 15 }
+            ],
+            "2026": [
+                { TypeName: "/Lotus/Upgrades/Skins/Horse/DagathDeluxeLNYHorseBodySkin", PremiumOverride: 220 },
+                { TypeName: "/Lotus/Upgrades/Skins/Horse/DagathDeluxeLNYHorseTail", PremiumOverride: 30 },
+                { TypeName: "/Lotus/Types/Items/ShipDecos/Plushies/PlushyLNYKaithe", PremiumOverride: 35 },
+                {
+                    TypeName: "/Lotus/Upgrades/Skins/LunarNewYear/CNY2025ScytheSkin",
+                    PremiumOverride: 25
+                },
+                {
+                    TypeName: "/Lotus/Upgrades/Skins/LunarNewYear/LNY2025BoltorSkin",
+                    PremiumOverride: 20
+                },
+                { TypeName: "/Lotus/Upgrades/Skins/Effects/LNYKaitheDagathEphemera", PremiumOverride: 60 },
+                { TypeName: "/Lotus/Upgrades/Skins/Sigils/WeGameNewYearHorseSigil", PremiumOverride: 40 },
+                {
+                    TypeName: "/Lotus/Upgrades/Skins/MeleeDangles/LNYFireSugatra",
+                    PremiumOverride: 15
+                },
+                { TypeName: "/Lotus/Types/Items/Emotes/LNY2026HorseEmote", PremiumOverride: 15 }
+            ]
+        };
+        const storeItems: Record<string, (Partial<IFlashSale> & { TypeName: string })[]> = {
+            "2019": [{ TypeName: "/Lotus/Types/Items/ShipLayerCNY", RegularOverride: 1 }],
+            "2020": [{ TypeName: "/Lotus/Types/StoreItems/AvatarImages/ImageGengzi", RegularOverride: 1 }],
+            "2021": [
+                { TypeName: "/Lotus/Types/StoreItems/Packages/LNY2021BlessingsBundle", PremiumOverride: 130 },
+                { TypeName: "/Lotus/Types/StoreItems/Packages/LNY2021AnewBundle", PremiumOverride: 185 },
+                { TypeName: "/Lotus/Types/StoreItems/Packages/LNY2021LuminousBundle", PremiumOverride: 470 }
+            ],
+            "2022": [
+                { TypeName: "/Lotus/Types/StoreItems/Packages/LNY2022BundleA", PremiumOverride: 135 },
+                { TypeName: "/Lotus/Types/StoreItems/Packages/LNY2022BundleB", PremiumOverride: 275 },
+                { TypeName: "/Lotus/Types/StoreItems/Packages/LNY2022BundleC", PremiumOverride: 515 },
+                { TypeName: "/Lotus/Types/StoreItems/Packages/LNY2022BundleD", PremiumOverride: 105 },
+                ...[...reapeingItems["2022"]].sort((a, b) => a.TypeName.localeCompare(b.TypeName))
+            ],
+            "2023": [
+                { TypeName: "/Lotus/Types/StoreItems/Packages/LNY2023BundleA", PremiumOverride: 135 },
+                { TypeName: "/Lotus/Types/StoreItems/Packages/LNY2023BundleB", PremiumOverride: 265 },
+                { TypeName: "/Lotus/Types/StoreItems/Packages/LNY2023BundleC", PremiumOverride: 500 },
+                { TypeName: "/Lotus/Types/StoreItems/AvatarImages/CNY2023RabbitGlyph", RegularOverride: 1 },
+                ...[...reapeingItems["2022"], ...reapeingItems["2023"]].sort((a, b) =>
+                    a.TypeName.localeCompare(b.TypeName)
+                )
+            ],
+            "2024": [
+                { TypeName: "/Lotus/Types/StoreItems/Packages/LNY2024BundleA", PremiumOverride: 135 },
+                { TypeName: "/Lotus/Types/StoreItems/Packages/LNY2024BundleB", PremiumOverride: 295 },
+                { TypeName: "/Lotus/Types/StoreItems/Packages/LNY2024BundleC", PremiumOverride: 575 },
+                { TypeName: "/Lotus/Types/StoreItems/Packages/LNY2024SentinelSkinBundle", PremiumOverride: 95 },
+                {
+                    TypeName: "/Lotus/Types/StoreItems/AvatarImages/Seasonal/AvatarImageYearOfTheDragonGlyph",
+                    RegularOverride: 1
+                },
+                ...[...reapeingItems["2022"], ...reapeingItems["2023"], ...reapeingItems["2024"]].sort((a, b) =>
+                    a.TypeName.localeCompare(b.TypeName)
+                )
+            ],
+            "2025": [
+                { TypeName: "/Lotus/Types/StoreItems/Packages/LNY2025BundleA", PremiumOverride: 215 },
+                { TypeName: "/Lotus/Types/StoreItems/Packages/LNY2025BundleB", PremiumOverride: 590 },
+                { TypeName: "/Lotus/Types/StoreItems/Packages/LNY2025BundleC", PremiumOverride: 805 },
+                {
+                    TypeName: "/Lotus/Types/StoreItems/AvatarImages/Seasonal/AvatarImageCNY2025SnakeGlyphB",
+                    RegularOverride: 1
+                },
+                { TypeName: "/Lotus/Upgrades/Skins/Clan/CNY2025SnakeEmblem", RegularOverride: 1 },
+                ...[
+                    ...reapeingItems["2022"],
+                    ...reapeingItems["2023"],
+                    ...reapeingItems["2024"],
+                    ...reapeingItems["2025"]
+                ].sort((a, b) => a.TypeName.localeCompare(b.TypeName))
+            ],
+            "2026": [
+                { TypeName: "/Lotus/Types/StoreItems/Packages/LNY2026BundleA", PremiumOverride: 295 },
+                { TypeName: "/Lotus/Types/StoreItems/Packages/LNY2026BundleB", PremiumOverride: 480 },
+                { TypeName: "/Lotus/Types/StoreItems/Packages/LNY2026BundleC", PremiumOverride: 700 },
+                {
+                    TypeName: "/Lotus/Types/StoreItems/AvatarImages/LNY2026HorseGlyph",
+                    RegularOverride: 1
+                },
+                { TypeName: "/Lotus/Upgrades/Skins/Clan/LNY2026HorseGlyph", RegularOverride: 1 },
+                ...[
+                    ...reapeingItems["2022"],
+                    ...reapeingItems["2023"],
+                    ...reapeingItems["2024"],
+                    ...reapeingItems["2025"],
+                    ...reapeingItems["2026"]
+                ].sort((a, b) => a.TypeName.localeCompare(b.TypeName))
+            ]
+        };
+        const selectedStoreItems: (Partial<IFlashSale> & { TypeName: string })[] = [];
+        if (config.worldState.lunarNewYear == "all") {
+            const addedTypeNames = new Set<string>();
+            const packageItems = [];
+            const otherItems = [];
+            for (const items of Object.values(storeItems)) {
+                for (const item of items) {
+                    if (!addedTypeNames.has(item.TypeName)) {
+                        addedTypeNames.add(item.TypeName);
+                        if (item.TypeName.includes("/Lotus/Types/StoreItems/Packages/")) {
+                            packageItems.push(item);
+                        } else {
+                            otherItems.push(item);
+                        }
+                    }
+                }
+            }
+            selectedStoreItems.push(
+                ...packageItems.sort((a, b) => a.TypeName.localeCompare(b.TypeName)),
+                ...otherItems.sort((a, b) => a.TypeName.localeCompare(b.TypeName))
+            );
+        } else if (config.worldState.lunarNewYear in storeItems) {
+            selectedStoreItems.push(...storeItems[config.worldState.lunarNewYear]);
+        }
+        pushFlashSales(worldState, selectedStoreItems, 1750865400000, 2000000000000, "SEASONAL", buildVersion);
+    }
+
+    // Thermia Fractures activates for 14 days, with alternating 4 and 3-day breaks
+    const thermiaFracturesCycleDay = day % 35;
+    const isThermiaFracturesActive =
+        thermiaFracturesCycleDay < 14 || (thermiaFracturesCycleDay >= 18 && thermiaFracturesCycleDay < 32);
+    const activeThermiaFracturesCycleDay =
+        thermiaFracturesCycleDay - (thermiaFracturesCycleDay < 14 ? 0 : thermiaFracturesCycleDay < 18 ? 14 : 32);
+
+    if (
+        (config.worldState?.thermiaFracturesOverride ?? isThermiaFracturesActive) &&
+        buildVersion >= gameToBuildVersionInt["24.5.1"]
+    ) {
+        const activeStartDay = day - activeThermiaFracturesCycleDay;
+
+        const count = config.worldState?.thermiaFracturesProgressOverride ?? 0;
+        const activation = config.worldState?.thermiaFracturesOverride ? 1740416400000 : getSortieTime(activeStartDay);
+        const expiry = config.worldState?.thermiaFracturesOverride ? 2000000000000 : getSortieTime(activeStartDay + 14);
+
+        // If we push it, the game may show the event even tho it's not activated yet (https://onlyg.it/OpenWF/SpaceNinjaServer/issues/2721)
+        if (timeMs >= activation) {
+            worldState.Goals.push({
+                _id: toOid2("5c7cb0d00000000000000000", buildVersion),
+                Activation: { $date: { $numberLong: activation.toString() } },
+                Expiry: { $date: { $numberLong: expiry.toString() } },
+                Node: "SolNode129",
+                ScoreVar: "FissuresClosed",
+                ScoreLocTag: "/Lotus/Language/G1Quests/HeatFissuresEventScore",
+                Count: count,
+                HealthPct: count / 100,
+                Regions: [1],
+                Desc: "/Lotus/Language/G1Quests/HeatFissuresEventName",
+                ToolTip: "/Lotus/Language/G1Quests/HeatFissuresEventDesc",
+                OptionalInMission: true,
+                Tag: "HeatFissure",
+                UpgradeIds: [{ $oid: "5c81cefa4c4566791728eaa7" }, { $oid: "5c81cefa4c4566791728eaa6" }],
+                Personal: true,
+                Community: true,
+                Goal: 100,
+                Reward: {
+                    items: ["/Lotus/StoreItems/Weapons/Corpus/LongGuns/CrpBFG/Vandal/VandalCrpBFG"]
+                },
+                InterimGoals: [5, 25, 50, 75],
+                InterimRewards: [
+                    { items: ["/Lotus/StoreItems/Upgrades/Skins/Clan/OrbBadgeItem"] },
+                    {
+                        items: [
+                            "/Lotus/StoreItems/Upgrades/Mods/DualSource/Shotgun/ShotgunMedicMod",
+                            "/Lotus/StoreItems/Upgrades/Mods/DualSource/Rifle/SerratedRushMod"
+                        ]
+                    },
+                    {
+                        items: [
+                            "/Lotus/StoreItems/Upgrades/Mods/DualSource/Pistol/MultishotDodgeMod",
+                            "/Lotus/StoreItems/Upgrades/Mods/DualSource/Melee/CritDamageChargeSpeedMod"
+                        ]
+                    },
+                    { items: ["/Lotus/StoreItems/Upgrades/Skins/Sigils/OrbSigil"] }
+                ]
+            });
+            worldState.NodeOverrides.push({
+                _id: toOid2("5c7cb0d00000000000000000", buildVersion),
+                Activation: { $date: { $numberLong: activation.toString() } },
+                Expiry: { $date: { $numberLong: expiry.toString() } },
+                Node: "SolNode129",
+                Faction: "FC_CORPUS",
+                CustomNpcEncounters: ["/Lotus/Types/Gameplay/Venus/Encounters/Heists/ExploiterHeistFissure"]
+            });
+            if (count >= 35) {
+                worldState.GlobalUpgrades.push({
+                    _id: toOid2("5c81cefa4c4566791728eaa6", buildVersion),
+                    Activation: { $date: { $numberLong: activation.toString() } },
+                    ExpiryDate: { $date: { $numberLong: expiry.toString() } },
+                    UpgradeType: "GAMEPLAY_MONEY_REWARD_AMOUNT",
+                    OperationType: "MULTIPLY",
+                    Value: 2,
+                    Nodes: ["SolNode129"]
+                });
+            }
+            // Not sure about that
+            if (count == 100) {
+                worldState.GlobalUpgrades.push({
+                    _id: toOid2("5c81cefa4c4566791728eaa7", buildVersion),
+                    Activation: { $date: { $numberLong: activation.toString() } },
+                    ExpiryDate: { $date: { $numberLong: expiry.toString() } },
+                    UpgradeType: "GAMEPLAY_PICKUP_AMOUNT",
+                    OperationType: "MULTIPLY",
+                    Value: 2,
+                    Nodes: ["SolNode129"]
+                });
+            }
+        }
+    }
+
+    // Nightwave Challenges
+    const nightwaveSyndicateTag = getNightwaveSyndicateTag(buildVersion);
+    if (nightwaveSyndicateTag) {
+        const nightwaveStartTimestamp = nightwaveTagToActivation[nightwaveSyndicateTag] ?? 1747851300000;
+        const nightwaveSeason = nightwaveTagToSeason[nightwaveSyndicateTag];
+        const nightwaveEpisode = ([0, 2, 4].includes(nightwaveSeason) && config.worldState?.nightwaveEpisode) || 1;
+        worldState.SeasonInfo = {
+            Activation: { $date: { $numberLong: nightwaveStartTimestamp.toString() } },
+            Expiry: { $date: { $numberLong: "2000000000000" } },
+            AffiliationTag: nightwaveSyndicateTag,
+            Season: nightwaveSeason,
+            Phase: nightwaveEpisode - 1,
+            Params: "",
+            ActiveChallenges: []
+        };
+        const pools = getSeasonChallengePools(nightwaveSyndicateTag);
+        if (pools.daily.length > 0) {
+            worldState.SeasonInfo.ActiveChallenges.push(getSeasonDailyChallenge(pools, day - 2));
+            worldState.SeasonInfo.ActiveChallenges.push(getSeasonDailyChallenge(pools, day - 1));
+            worldState.SeasonInfo.ActiveChallenges.push(getSeasonDailyChallenge(pools, day - 0));
+            if (isBeforeNextExpectedWorldStateRefresh(timeMs, EPOCH + (day + 1) * 86400000)) {
+                worldState.SeasonInfo.ActiveChallenges.push(getSeasonDailyChallenge(pools, day + 1));
+            }
+        }
+        pushWeeklyActs(worldState.SeasonInfo.ActiveChallenges, pools, week, nightwaveStartTimestamp, nightwaveSeason);
+        if (isBeforeNextExpectedWorldStateRefresh(timeMs, weekEnd)) {
+            pushWeeklyActs(
+                worldState.SeasonInfo.ActiveChallenges,
+                pools,
+                week + 1,
+                nightwaveStartTimestamp,
+                nightwaveSeason
+            );
+        }
+    }
+
+    {
+        worldState.NodeOverrides.push(
+            { _id: toOid2("549b18e9b029cef5991d6aec", buildVersion), Node: "EuropaHUB", Hide: true },
+            { _id: toOid2("54a1737aeb658f6cbccf70ff", buildVersion), Node: "ErisHUB", Hide: true },
+            { _id: toOid2("54a736ddec12f80bd6e9e326", buildVersion), Node: "VenusHUB", Hide: true }
+        );
+        if (buildVersion >= gameToBuildVersionInt["22.18.0"]) {
+            worldState.NodeOverrides.push({
+                _id: toOid2("5ad9f9bb6df82a56eabf3d44", buildVersion),
+                Node: "SolNode802",
+                // Elite Sanctuary Onslaught cycling every week
+                Seed: new SRng(week).randomInt(0, 0xff_ffff)
+            });
+        }
+        if (buildVersion >= gameToBuildVersionInt["25.7.0"]) {
+            worldState.NodeOverrides.push({
+                _id: toOid2("5d24d1f674491d51f8d44473", buildVersion),
+                Node: "MercuryHUB",
+                Hide: true,
+                LevelOverride: "/Lotus/Levels/Proc/Hub/RelayStationHubHydroid",
+                Activation: toMongoDate2(1563030000000, buildVersion)
+            });
+        }
+        if (buildVersion >= gameToBuildVersionInt["21.0.0"]) {
+            worldState.NodeOverrides.push({
+                _id: toOid2("5b8817c2bd4f253264d6aa91", buildVersion),
+                Node: "EarthHUB",
+                Hide: false,
+                LevelOverride: "/Lotus/Levels/Proc/Hub/RelayStationHubTwoB",
+                Activation: toMongoDate2(1535646600000, buildVersion)
+            });
+        }
+    }
+
+    // Holdfast, Cavia, & Hex bounties cycling every 2.5 hours; unfaithful implementation
+    let bountyCycle = Math.trunc((timeSecs - bountyEpoch) / eidolonCycleDuration);
+    let bountyCycleEnd: number | undefined;
+    do {
+        const bountyCycleStart = Math.trunc((bountyEpoch + bountyCycle * eidolonCycleDuration) * 1000);
+        bountyCycleEnd = Math.trunc(bountyCycleStart + eidolonCycleDuration * 1000);
+        if (buildVersion >= gameToBuildVersionInt["29.0.0"]) {
+            worldState.SyndicateMissions.push({
+                _id: toOid2(
+                    ((bountyCycleStart / 1000) & 0xffffffff).toString(16).padStart(8, "0") + "0000000000000004",
+                    buildVersion
+                ),
+                Activation: toMongoDate2(bountyCycleStart, buildVersion),
+                Expiry: toMongoDate2(bountyCycleEnd, buildVersion),
+                Tag: "EntratiLabSyndicate",
+                Seed: bountyCycle,
+                Nodes: []
+            });
+        }
+        if (buildVersion >= gameToBuildVersionInt["31.5.0"]) {
+            worldState.SyndicateMissions.push({
+                _id: toOid2(
+                    ((bountyCycleStart / 1000) & 0xffffffff).toString(16).padStart(8, "0") + "0000000000000029",
+                    buildVersion
+                ),
+                Activation: toMongoDate2(bountyCycleStart, buildVersion),
+                Expiry: toMongoDate2(bountyCycleEnd, buildVersion),
+                Tag: "ZarimanSyndicate",
+                Seed: bountyCycle,
+                Nodes: []
+            });
+        }
+        if (buildVersion >= gameToBuildVersionInt["38.0.0"]) {
+            worldState.SyndicateMissions.push({
+                _id: toOid2(
+                    ((bountyCycleStart / 1000) & 0xffffffff).toString(16).padStart(8, "0") + "0000000000000006",
+                    buildVersion
+                ),
+                Activation: toMongoDate2(bountyCycleStart, buildVersion),
+                Expiry: toMongoDate2(bountyCycleEnd, buildVersion),
+                Tag: "HexSyndicate",
+                Seed: bountyCycle,
+                Nodes: []
+            });
+        }
+
+        pushClassicBounties(worldState.SyndicateMissions, bountyCycle, buildVersion);
+    } while (isBeforeNextExpectedWorldStateRefresh(timeMs, bountyCycleEnd) && ++bountyCycle);
+
+    const ghoulsCycleDay = day % 21;
+    const isGhoulEmergenceActive = ghoulsCycleDay >= 17 && ghoulsCycleDay <= 20; // 4 days for event and 17 days for break
+    if (
+        (config.worldState?.ghoulEmergenceOverride ?? isGhoulEmergenceActive) &&
+        buildVersion >= gameToBuildVersionInt["22.8.2"]
+    ) {
+        const ghoulPool = [...eidolonGhoulJobs];
+        const pastGhoulPool = [...eidolonGhoulJobs];
+
+        const seed = new SRng(bountyCycle).randomInt(0, 100_000);
+        const pastSeed = new SRng(bountyCycle - 1).randomInt(0, 100_000);
+
+        const rng = new SRng(seed);
+        const pastRng = new SRng(pastSeed);
+
+        const activeStartDay = day - ghoulsCycleDay + 17;
+        const activeEndDay = activeStartDay + 5;
+        const dayWithFraction = (timeMs - EPOCH) / unixTimesInMs.day;
+
+        const progress = (dayWithFraction - activeStartDay) / (activeEndDay - activeStartDay);
+        const healthPct = 1 - Math.min(Math.max(progress, 0), 1);
+
+        const bountyCycleStartSecs = Math.trunc(bountyEpoch + bountyCycle * eidolonCycleDuration);
+
+        worldState.Goals.push({
+            _id: toOid2("687ebbe6d1d17841c9c59f38", buildVersion),
+            Activation: {
+                $date: {
+                    $numberLong: config.worldState?.ghoulEmergenceOverride
+                        ? "1753204900185"
+                        : (EPOCH + activeStartDay * unixTimesInMs.day).toString()
+                }
+            },
+            Expiry: {
+                $date: {
+                    $numberLong: config.worldState?.ghoulEmergenceOverride
+                        ? "2000000000000"
+                        : (EPOCH + activeEndDay * unixTimesInMs.day).toString()
+                }
+            },
+            HealthPct: config.worldState?.ghoulEmergenceOverride ? 1 : healthPct,
+            VictimNode: "SolNode228",
+            Regions: [2],
+            Success: 0,
+            Desc: "/Lotus/Language/GameModes/RecurringGhoulAlert",
+            ToolTip: "/Lotus/Language/GameModes/RecurringGhoulAlertDesc",
+            Icon: "/Lotus/Interface/Icons/Categories/IconGhouls256.png",
+            Tag: "GhoulEmergence",
+            JobAffiliationTag: "CetusSyndicate",
+            JobCurrentVersion: {
+                $oid: (bountyCycleStartSecs & 0xffffffff).toString(16).padStart(8, "0") + "0000000000000008"
+            },
+            Jobs: [
+                {
+                    jobType: rng.randomElementPop(ghoulPool),
+                    rewards: `/Lotus/Types/Game/MissionDecks/EidolonJobMissionRewards/GhoulBountyTableARewards`,
+                    masteryReq: 1,
+                    minEnemyLevel: 15,
+                    maxEnemyLevel: 25,
+                    xpAmounts: [270, 270, 270, 400] // not faithful
+                },
+                {
+                    jobType: rng.randomElementPop(ghoulPool),
+                    rewards: `/Lotus/Types/Game/MissionDecks/EidolonJobMissionRewards/GhoulBountyTableBRewards`,
+                    masteryReq: 3,
+                    minEnemyLevel: 40,
+                    maxEnemyLevel: 50,
+                    xpAmounts: [480, 480, 480, 710] // not faithful
+                }
+            ],
+            JobPreviousVersion: {
+                $oid: (((bountyCycle - 1) * 9000) & 0xffffffff).toString(16).padStart(8, "0") + "0000000000000008"
+            },
+            PreviousJobs: [
+                {
+                    jobType: pastRng.randomElementPop(pastGhoulPool),
+                    rewards: `/Lotus/Types/Game/MissionDecks/EidolonJobMissionRewards/GhoulBountyTableARewards`,
+                    masteryReq: 1,
+                    minEnemyLevel: 15,
+                    maxEnemyLevel: 25,
+                    xpAmounts: [270, 270, 270, 400] // not faithful
+                },
+                {
+                    jobType: pastRng.randomElementPop(pastGhoulPool),
+                    rewards: `/Lotus/Types/Game/MissionDecks/EidolonJobMissionRewards/GhoulBountyTableBRewards`,
+                    masteryReq: 3,
+                    minEnemyLevel: 40,
+                    maxEnemyLevel: 50,
+                    xpAmounts: [480, 480, 480, 710] // not faithful
+                }
+            ]
+        });
+    }
+
+    if (config.worldState?.breedingGrounds && buildVersion >= gameToBuildVersionInt["14.0.0"]) {
+        worldState.Goals.push({
+            _id: toOid2("53a35a043f9a5b16e0308ea7", buildVersion),
+            Activation: toMongoDate2(1753204900185, buildVersion),
+            Count: 0,
+            Desc: "/Lotus/Language/G1Quests/InfestedCorpusHiveEventName",
+            Expiry: toMongoDate2(2000000000000, buildVersion),
+            Goal: 48,
+            InterimGoals: [6, 17],
+            MissionKeyName: "/Lotus/Types/Keys/InfestedCorpusHiveEventKey",
+            Node: "EventNode10",
+            Success: 0,
+            ToolTip: "/Lotus/Language/G1Quests/InfestedCorpusHiveEventToolTip",
+            Personal: true,
+            Best: !config.unfaithfulBugFixes?.giveBreedingGroundsRewardsAtSum,
+            Tag: changeLegacyTags ? tagsForOlderGoals[3] : "HiveEvent", // Madeup tag
+            InterimRewards: [
+                { items: ["/Lotus/StoreItems/Upgrades/Skins/Clan/HiveSabotageEventBadgeItem"] },
+                {
+                    items: [
+                        "/Lotus/StoreItems/Upgrades/Mods/Rifle/DualStat/FireEventRifleMod",
+                        "/Lotus/StoreItems/Upgrades/Mods/Shotgun/DualStat/FireEventShotgunMod",
+                        "/Lotus/StoreItems/Upgrades/Mods/Pistol/DualStat/FireEventPistolMod",
+                        "/Lotus/StoreItems/Upgrades/Mods/Melee/DualStat/FireEventMeleeMod"
+                    ]
+                }
+            ],
+            Reward: { items: ["/Lotus/StoreItems/Weapons/ClanTech/Energy/VandalElectroProd"] },
+            ScoreSumTag: "HiveEventScoreSum",
+            ScoreMaxTag: "HiveEvent"
+        });
+    }
+
+    if (config.worldState?.creditBoostMultiplier) {
+        worldState.GlobalUpgrades.push({
+            _id: toOid2("5b23106f283a555109666672", buildVersion),
+            Activation: toMongoDate2(1740164400000, buildVersion),
+            ExpiryDate: toMongoDate2(2000000000000, buildVersion),
+            UpgradeType: "GAMEPLAY_MONEY_REWARD_AMOUNT",
+            OperationType: "MULTIPLY",
+            Value: config.worldState.creditBoostMultiplier,
+            LocalizeTag: "",
+            LocalizeDescTag: ""
+        });
+    }
+    if (config.worldState?.affinityBoostMultiplier) {
+        worldState.GlobalUpgrades.push({
+            _id: toOid2("5b23106f283a555109666673", buildVersion),
+            Activation: toMongoDate2(1740164400000, buildVersion),
+            ExpiryDate: toMongoDate2(2000000000000, buildVersion),
+            UpgradeType: "GAMEPLAY_KILL_XP_AMOUNT",
+            OperationType: "MULTIPLY",
+            Value: config.worldState.affinityBoostMultiplier,
+            LocalizeTag: "",
+            LocalizeDescTag: ""
+        });
+    }
+    const modDropChanceMultiplier = config.worldState?.modDropChanceMultiplier ?? 1;
+    if (modDropChanceMultiplier > 1) {
+        worldState.GlobalUpgrades.push({
+            _id: toOid2("5b23106f283a555109666675", buildLabel),
+            Activation: toMongoDate2(1740164400000, buildLabel),
+            ExpiryDate: toMongoDate2(2000000000000, buildLabel),
+            UpgradeType: "GAMEPLAY_PICKUP_RATE",
+            OperationType: "MULTIPLY",
+            Value: modDropChanceMultiplier,
+            LocalizeTag: "",
+            LocalizeDescTag: ""
+        });
+    }
+    if (config.worldState?.resourceBoostMultiplier) {
+        worldState.GlobalUpgrades.push({
+            _id: toOid2("5b23106f283a555109666674", buildVersion),
+            Activation: toMongoDate2(1740164400000, buildVersion),
+            ExpiryDate: toMongoDate2(2000000000000, buildVersion),
+            UpgradeType: "GAMEPLAY_PICKUP_AMOUNT",
+            OperationType: "MULTIPLY",
+            Value: config.worldState.resourceBoostMultiplier,
+            LocalizeTag: "",
+            LocalizeDescTag: ""
+        });
+    }
+
+    // Sheev parts were added in 19.6.3, so versions prior to that may take too kindly to seeing invasions.
+    if (buildVersion > gameToBuildVersionInt["19.5.3"]) {
+        // Rough outline of dynamic invasions.
+        // TODO: Invasions chains, e.g. an infestation mission would soon lead to other nodes on that planet also having an infestation invasion.
+        // TODO: Grineer/Corpus to fund their death stars with each invasion win.
+        {
+            worldState.Invasions.push(createInvasion(day, 0, buildVersion));
+            worldState.Invasions.push(createInvasion(day, 1, buildVersion));
+            worldState.Invasions.push(createInvasion(day, 2, buildVersion));
+
+            // Completed invasions stay for up to 24 hours as the winner 'occupies' that node
+            worldState.Invasions.push(createInvasion(day - 1, 0, buildVersion));
+            worldState.Invasions.push(createInvasion(day - 1, 1, buildVersion));
+            worldState.Invasions.push(createInvasion(day - 1, 2, buildVersion));
+        }
+    }
+
+    // Baro
+    // Introdused in U15.6
+    // The permanent TennoCon relay above already advertises Baro and his complete manifest.
+    // Emitting the rotating trader as well duplicates every offer in WorldState and makes the
+    // Star Chart rebuild both catalogs when returning from the relay.
+    if (buildVersion > gameToBuildVersionInt["15.5.0"] && !config.worldState?.baroTennoConRelay) {
+        const baroIndex = Math.trunc((Date.now() - 910800000) / (unixTimesInMs.day * 14));
+        const baroStart = baroIndex * (unixTimesInMs.day * 14) + 910800000;
+        const baroActualStart = baroStart + unixTimesInMs.day * (config.worldState?.baroAlwaysAvailable ? 0 : 12);
+        const baroEnd = baroStart + unixTimesInMs.day * 14;
+        const baroRelayOverride = config.worldState?.baroRelayOverride;
+        const baroNodeIndex = baroRelayOverride && baroRelayOverride > 0 ? baroRelayOverride - 1 : baroIndex % 4;
+        let baroNode = ["EarthHUB", "MercuryHUB", "SaturnHUB", "PlutoHUB"][baroNodeIndex];
+        if (baroNode == "MercuryHUB" && buildVersion < gameToBuildVersionInt["18.18.0"]) {
+            // This Pre-Star Chart 3.0 client won't know Larunda Relay, so move Baro elsewhere.
+            baroNode = "EarthHUB";
+        }
+        const evilBaroStage =
+            buildVersion >= gameToBuildVersionInt["40.0.0"] ? (config.worldState?.evilBaroStage ?? 0) : 0;
+        const baroCharacter = ["Baro'Ki Teel", "EvilBaroWeek1", "EvilBaroWeek2", "EvilBaroWeek3", "EvilBaroWeek4"][
+            evilBaroStage
+        ];
+        const vt: IVoidTrader = {
+            _id: toOid2(
+                ((baroStart / 1000) & 0xffffffff).toString(16).padStart(8, "0") + "493c96d6067610bc",
+                buildVersion
+            ),
+            Activation: toMongoDate2(baroActualStart, buildVersion),
+            Expiry: toMongoDate2(baroEnd, buildVersion),
+            Character: baroCharacter,
+            Node: baroNode,
+            Manifest: []
+        };
+        worldState.VoidTraders.push(vt);
+        if (isBeforeNextExpectedWorldStateRefresh(timeMs, baroActualStart)) {
+            if (config.worldState?.baroFullyStocked || config.fullyStockedVendors) {
+                fullyStockBaro(vt, buildVersion);
+            } else {
+                const tempManifest: IBaroDataTradeOffer[] = [];
+                const rng = new SRng(new SRng(baroIndex).randomInt(0, 100_000));
+                // TOVERIFY: Constraint for upgrades amount?
+                // TOVERIFY: Constraint for weapon amount?
+                // TOVERIFY: Constraint for relics amount?
+                const armorSet = rng.randomElement(baro.armorSets)!;
+                const armorItems = armorSet.bundle && rng.randomInt(0, 1) == 0 ? [armorSet.bundle] : armorSet.items;
+
+                while (tempManifest.length + armorItems.length < 31) {
+                    const item = rng.randomElement(baro.rest)!;
+                    if (tempManifest.indexOf(item) == -1) {
+                        const set = baro.allIfAny.find(set => set.indexOf(item.ItemType) != -1);
+                        if (set) {
+                            for (const itemType of set) {
+                                tempManifest.push(baro.rest.find(x => x.ItemType == itemType)!);
+                            }
+                        } else {
+                            tempManifest.push(item);
+                        }
+                    }
+                }
+                const overflow = 31 - (tempManifest.length + armorItems.length);
+                if (overflow > 0) {
+                    tempManifest.splice(0, overflow);
+                }
+                tempManifest.push(...armorItems);
+
+                {
+                    const evilBaroStock: string[] = [];
+                    if (evilBaroStage >= 1) evilBaroStock.push("EvilBaroArcaArmorA", "BaroEvilEphemera");
+                    if (evilBaroStage >= 2) evilBaroStock.push("GrimoireEvilBaroSkin", "EvilBaroArcaArmorC");
+                    if (evilBaroStage >= 3) evilBaroStock.push("EvilBaroArcaArmorL", "EvilBaroSilvaAndAegis");
+                    if (evilBaroStage >= 4) {
+                        evilBaroStock.push(
+                            "EvilBaroNecraloidSigil",
+                            "DissolveEnemyMod",
+                            "EvilBaroFloatingCandlesShipDeco"
+                        );
+                    }
+
+                    tempManifest.unshift(
+                        ...baro.evilBaro.filter(item => evilBaroStock.some(end => item.ItemType.endsWith(end)))
+                    );
+                }
+                for (const item of baro.evergreen) {
+                    tempManifest.push(item);
+                }
+                vt.Manifest.push(
+                    ...tempManifest
+                        .filter(({ minBuildVersionInt }) => buildVersion >= minBuildVersionInt)
+                        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                        .map(({ minBuildVersionInt, ...offer }) => offer)
+                );
+            }
+        }
+    }
+
+    // Varzia
+    // introduced in 30.9.4
+    if (buildVersion >= gameToBuildVersionInt["31.0.0"]) {
+        const pt: IPrimeVaultTrader = {
+            _id: { $oid: ((weekStart / 1000) & 0xffffffff).toString(16).padStart(8, "0") + "c36af423770eaa97" },
+            Activation: { $date: { $numberLong: weekStart.toString() } },
+            InitialStartDate: { $date: { $numberLong: "1662738144266" } },
+            Node: "TradeHUB1",
+            Manifest: [],
+            Expiry: { $date: { $numberLong: weekEnd.toString() } },
+            EvergreenManifest: [...varzia.evergreen],
+            ScheduleInfo: []
+        };
+        worldState.PrimeVaultTraders.push(pt);
+        const rotation = config.worldState?.varziaOverride || getVarziaRotation(week, buildVersion);
+        pt.Manifest =
+            config.worldState?.varziaFullyStocked || config.fullyStockedVendors
+                ? getAllVarziaManifests(buildVersion)
+                : getVarziaManifest(rotation, buildVersion);
+        const existingVarziaOfferTypes = new Set([
+            ...pt.Manifest.map(offer => offer.ItemType),
+            ...pt.EvergreenManifest.map(offer => offer.ItemType)
+        ]);
+        for (const offer of getPrivatePrimeAccessVarziaOffers(buildLabel)) {
+            if (!existingVarziaOfferTypes.has(offer.ItemType)) {
+                pt.EvergreenManifest.push(offer);
+                existingVarziaOfferTypes.add(offer.ItemType);
+            }
+        }
+        if (config.worldState?.varziaOverride || config.worldState?.varziaFullyStocked || config.fullyStockedVendors) {
+            pt.Expiry = { $date: { $numberLong: "2000000000000" } };
+        } else {
+            pt.ScheduleInfo.push({
+                Expiry: { $date: { $numberLong: (weekEnd + unixTimesInMs.week).toString() } },
+                FeaturedItem: getVarziaRotation(week + 1, buildVersion)
+            });
+        }
+    }
+
+    // Void Storms
+    if (buildVersion >= gameToBuildVersionInt["30.0.0"]) {
+        const hour = Math.trunc(timeMs / unixTimesInMs.hour);
+        const overLastHourStormExpiry = hour * unixTimesInMs.hour + 10 * unixTimesInMs.minute;
+        const thisHourStormActivation = hour * unixTimesInMs.hour + 40 * unixTimesInMs.minute;
+        if (overLastHourStormExpiry > timeMs) {
+            pushVoidStorms(worldState.VoidStorms, hour - 2);
+        }
+        pushVoidStorms(worldState.VoidStorms, hour - 1);
+        if (isBeforeNextExpectedWorldStateRefresh(timeMs, thisHourStormActivation)) {
+            pushVoidStorms(worldState.VoidStorms, hour);
+        }
+    }
+
+    // Sortie & syndicate missions cycling every day (at 16:00 or 17:00 UTC depending on if London, OT is observing DST)
+    if (buildVersion >= gameToBuildVersionInt["15.0.0"]) {
+        const rollover = getSortieTime(day);
+
+        // Omit sorties for pre-Star Chart 3.0 clients to avoid breaking them.
+        if (buildVersion >= gameToBuildVersionInt["18.18.0"]) {
+            // Daily sortie -- child clock: sortie follows the clock index, timer follows the clock (resets on completion).
+            const sortieClock = getEventClock("sorties", timeMs);
+            const curSortie = getSortie(sortieClock.index, buildVersion);
+            curSortie.Activation = { $date: { $numberLong: (sortieClock.expiryMs - unixTimesInMs.day).toString() } };
+            curSortie.Expiry = { $date: { $numberLong: sortieClock.expiryMs.toString() } };
+            worldState.Sorties.push(curSortie);
+        }
+
+        // The client does not seem to respect activation for classic syndicate missions, so only pushing current ones.
+        const sdy = timeMs >= rollover ? day : day - 1;
+        const rng = new SRng(sdy);
+        pushSyndicateMissions(worldState, sdy, rng.randomInt(0, 100_000), "ba6f84724fa48049", "ArbitersSyndicate");
+        pushSyndicateMissions(worldState, sdy, rng.randomInt(0, 100_000), "ba6f84724fa4804a", "CephalonSudaSyndicate");
+        pushSyndicateMissions(worldState, sdy, rng.randomInt(0, 100_000), "ba6f84724fa4804e", "NewLokaSyndicate");
+        pushSyndicateMissions(worldState, sdy, rng.randomInt(0, 100_000), "ba6f84724fa48050", "PerrinSyndicate");
+        pushSyndicateMissions(worldState, sdy, rng.randomInt(0, 100_000), "ba6f84724fa4805e", "RedVeilSyndicate");
+        pushSyndicateMissions(worldState, sdy, rng.randomInt(0, 100_000), "ba6f84724fa48061", "SteelMeridianSyndicate");
+    }
+
+    if (config.worldState?.communitySynthesisTarget) {
+        const targetType = `/Lotus/Types/Game/Library/Targets/Research${config.worldState.communitySynthesisTarget}Target`;
+        worldState.LibraryInfo = {
+            CurrentTarget: {
+                StartTime: toMongoDate2(0, buildVersion),
+                TargetType: targetType,
+                EnemyType: libraryTargetToAvatar[targetType],
+                PersonalScansRequired: 10,
+                ProgressPercent: config.worldState.communitySynthesisProgress ?? 0
+            }
+        };
+        if (config.worldState.communitySynthesisTarget != 1) {
+            worldState.LibraryInfo.LastCompletedTargetType = `/Lotus/Types/Game/Library/Targets/Research${config.worldState.communitySynthesisTarget - 1}Target`;
+        }
+    }
+
+    if (config.worldState?.snowdayShowdown && buildVersion >= gameToBuildVersionInt["19.4.1"]) {
+        worldState.PVPAlternativeModes.push({
+            TargetMode: "PVPMODE_TEAMDEATHMATCH",
+            TitleLoc: "/Lotus/Language/G1Quests/TacAlertSnowballFightTitle",
+            DescriptionLoc: "/Lotus/Language/G1Quests/TacAlertSnowballFightToolTip",
+            DisableEnergyPickups: true,
+            DisableEnergySurge: true,
+            DisableAmmoPickups: true,
+            DisableWeaponSwitching: true,
+            DisableWeaponHud: false,
+            EnergyCapOverride: 0,
+            ForceChangeLoadoutOnDeath: false,
+            MatchTimeOverride: 600,
+            MaxPlayersOverride: 8,
+            MinPlayersPerTeamOverride: 2,
+            MaxTeamCountDifferenceOverride: 2,
+            WeaponOverrides: [
+                { Override: false, UseFirstAsDefault: true, Resources: [], OriginalVersions: [] },
+                {
+                    Override: true,
+                    UseFirstAsDefault: true,
+                    Resources: ["/Lotus/Weapons/Tenno/ThrowingWeapons/VariantSnowBalls"],
+                    OriginalVersions: []
+                },
+                { Override: true, UseFirstAsDefault: true, Resources: [], OriginalVersions: [] }
+            ],
+            MeleeWeaponOverride: {
+                Override: true,
+                UseFirstAsDefault: true,
+                Resources: ["/Lotus/Weapons/Tenno/Melee/Scythe/ParisScythe/VariantXmasScythe"],
+                OriginalVersions: [],
+                IsModularMeleeWeapon: false,
+                BalancesPool: [],
+                HandlesPool: [],
+                TipsPool: []
+            }
+        });
+    }
+
+    pushPvpChallengeInstances(worldState.PVPChallengeInstances, timeMs, day, week, weekStart, buildVersion);
+
+    // Archon Hunt cycling every week -- child clock: content follows the clock's rotation index and the visible
+    // timer follows the clock's expiry, so finishing the hunt rolls it to the next boss with a fresh countdown.
+    if (buildVersion >= gameToBuildVersionInt["32.0.0"]) {
+        const archon = getEventClock("archonHunt", timeMs);
+        const curArchon = getLiteSortie(archon.index);
+        curArchon.Activation = { $date: { $numberLong: (archon.expiryMs - unixTimesInMs.week).toString() } };
+        curArchon.Expiry = { $date: { $numberLong: archon.expiryMs.toString() } };
+        worldState.LiteSorties.push(curArchon);
+        if (isBeforeNextExpectedWorldStateRefresh(timeMs, archon.expiryMs)) {
+            const nextArchon = getLiteSortie(archon.index + 1);
+            nextArchon.Activation = { $date: { $numberLong: archon.expiryMs.toString() } };
+            nextArchon.Expiry = { $date: { $numberLong: (archon.expiryMs + unixTimesInMs.week).toString() } };
+            worldState.LiteSorties.push(nextArchon);
+        }
+    }
+
+    // Circuit choices cycling every week -- child clock: choices follow the clock index, timer follows the clock.
+    if (buildVersion >= gameToBuildVersionInt["42.0.0"]) {
+        const circuit = getEventClock("circuit", timeMs);
+        worldState.EndlessXpSchedule = [
+            {
+                Activation: { $date: { $numberLong: (circuit.expiryMs - unixTimesInMs.week).toString() } },
+                Expiry: { $date: { $numberLong: circuit.expiryMs.toString() } },
+                CategoryChoices: getEndlessXpChoices(circuit.index, buildVersion)
+            }
+        ];
+        if (isBeforeNextExpectedWorldStateRefresh(timeMs, circuit.expiryMs)) {
+            worldState.EndlessXpSchedule.push({
+                Activation: { $date: { $numberLong: circuit.expiryMs.toString() } },
+                Expiry: { $date: { $numberLong: (circuit.expiryMs + unixTimesInMs.week).toString() } },
+                CategoryChoices: getEndlessXpChoices(circuit.index + 1, buildVersion)
+            });
+        }
+    } else if (buildVersion >= gameToBuildVersionInt["33.0.0"]) {
+        worldState.EndlessXpChoices = getEndlessXpChoices(getEventClock("circuit", timeMs).index, buildVersion);
+    }
+
+    // 1999 Calendar Season cycling every week -- child clock: season follows the clock index, timer follows the clock.
+    if (buildVersion >= gameToBuildVersionInt["38.0.0"]) {
+        const calendar = getEventClock("calendar", timeMs);
+        const curCal = getCurrentCalendarSeason(timeMs);
+        worldState.KnownCalendarSeasons.push(curCal);
+        if (isBeforeNextExpectedWorldStateRefresh(timeMs, calendar.expiryMs)) {
+            const nextCal = getCalendarSeason(calendar.index + 1);
+            nextCal.Activation = { $date: { $numberLong: calendar.expiryMs.toString() } };
+            nextCal.Expiry = { $date: { $numberLong: (calendar.expiryMs + unixTimesInMs.week).toString() } };
+            worldState.KnownCalendarSeasons.push(nextCal);
+        }
+    }
+
+    const labConquest = getConquest("CT_LAB", week, null);
+    // eta child clock: the Hex Conquest ("Echoes"/1999 weekly) layout follows the eta clock index and its timer
+    // follows the clock expiry, so finishing it rolls to next week's run with a fresh countdown -- mirrors the
+    // eda/Descents behaviour. (Lab Conquest stays on the wall-clock week.)
+    const hexClock = getEventClock("eta", timeMs);
+    const hexSeason = (["CST_WINTER", "CST_SPRING", "CST_SUMMER", "CST_FALL"] as const)[hexClock.index % 4];
+    const hexConquest = getConquest("CT_HEX", hexClock.index, hexSeason);
+    hexConquest.Activation = { $date: { $numberLong: (hexClock.expiryMs - unixTimesInMs.week).toString() } };
+    hexConquest.Expiry = { $date: { $numberLong: hexClock.expiryMs.toString() } };
+    if (buildVersion >= gameToBuildVersionInt["40.0.0"]) {
+        worldState.Conquests = [labConquest, hexConquest];
+        if (isBeforeNextExpectedWorldStateRefresh(timeMs, weekEnd)) {
+            worldState.Conquests.push(getConquest("CT_LAB", week, null));
+        }
+        if (isBeforeNextExpectedWorldStateRefresh(timeMs, hexClock.expiryMs)) {
+            const nextHexSeason = (["CST_WINTER", "CST_SPRING", "CST_SUMMER", "CST_FALL"] as const)[
+                (hexClock.index + 1) % 4
+            ];
+            const nextHexConquest = getConquest("CT_HEX", hexClock.index + 1, nextHexSeason);
+            nextHexConquest.Activation = { $date: { $numberLong: hexClock.expiryMs.toString() } };
+            nextHexConquest.Expiry = { $date: { $numberLong: (hexClock.expiryMs + unixTimesInMs.week).toString() } };
+            worldState.Conquests.push(nextHexConquest);
+        }
+    }
+
+    // Descendia (Archimedea / EDA / ETA) cycling every week -- child clock: layout follows the clock index, timer
+    // follows the clock expiry, so finishing it rolls to the next week's run with a fresh countdown.
+    if (buildVersion >= gameToBuildVersionInt["41.0.0"]) {
+        const descent = getEventClock("eda", timeMs);
+        const curDescent = getDescent(descent.index);
+        curDescent.Activation = { $date: { $numberLong: (descent.expiryMs - unixTimesInMs.week).toString() } };
+        curDescent.Expiry = { $date: { $numberLong: descent.expiryMs.toString() } };
+        worldState.Descents = [curDescent];
+        if (isBeforeNextExpectedWorldStateRefresh(timeMs, descent.expiryMs)) {
+            const nextDescent = getDescent(descent.index + 1);
+            nextDescent.Activation = { $date: { $numberLong: descent.expiryMs.toString() } };
+            nextDescent.Expiry = { $date: { $numberLong: (descent.expiryMs + unixTimesInMs.week).toString() } };
+            worldState.Descents.push(nextDescent);
+        }
+    }
+
+    // Sentient Anomaly + Xtra Cheese cycles
+    const halfHour = Math.trunc(timeMs / (unixTimesInMs.hour / 2));
+    const hourInSeconds = 3600;
+    const cheeseInterval = hourInSeconds * 8;
+    const cheeseDuration = hourInSeconds * 2;
+    const cheeseIndex = Math.trunc(timeSecs / cheeseInterval);
+    let cheeseStart = cheeseIndex * cheeseInterval;
+    let cheeseEnd = cheeseStart + cheeseDuration;
+    let cheeseNext = (cheeseIndex + 1) * cheeseInterval;
+    // Live servers only update the start time once it happens, which makes the
+    // client show a negative countdown during off-hours. Optionally adjust the
+    // times so the next activation is always in the future.
+    if (config.unfaithfulBugFixes?.fixXtraCheeseTimer && timeSecs >= cheeseEnd) {
+        cheeseStart = cheeseNext;
+        cheeseEnd = cheeseStart + cheeseDuration;
+        cheeseNext += cheeseInterval;
+    }
+    const tmp: ITmp = {
+        cavabegin: "1690761600",
+        PurchasePlatformLockEnabled: true,
+        pgr: {
+            ts: "1732572900",
+            en: "CUSTOM DECALS @ ZEVILA",
+            fr: "DECALS CUSTOM @ ZEVILA",
+            it: "DECALCOMANIE PERSONALIZZATE @ ZEVILA",
+            de: "AUFKLEBER NACH WUNSCH @ ZEVILA",
+            es: "CALCOMANÍAS PERSONALIZADAS @ ZEVILA",
+            pt: "DECALQUES PERSONALIZADOS NA ZEVILA",
+            ru: "ПОЛЬЗОВАТЕЛЬСКИЕ НАКЛЕЙКИ @ ЗеВиЛа",
+            pl: "NOWE NAKLEJKI @ ZEVILA",
+            uk: "КОРИСТУВАЦЬКІ ДЕКОЛІ @ ЗІВІЛА",
+            tr: "ÖZEL ÇIKARTMALAR @ ZEVILA",
+            ja: "カスタムデカール @ ゼビラ",
+            zh: "定制贴花认准泽威拉",
+            ko: "커스텀 데칼 @ ZEVILA",
+            tc: "自訂貼花 @ ZEVILA",
+            th: "รูปลอกสั่งทำที่ ZEVILA"
+        },
+        ennnd: true,
+        mbrt: true,
+        fbst: {
+            a: cheeseStart,
+            e: cheeseEnd,
+            n: cheeseNext
+        },
+        lqo: {
+            mt: labConquest.Missions.map(x => getMissionTypeForLegacyOverride(x.missionType, "CT_LAB")),
+            mv: labConquest.Missions.map(x => x.difficulties[1].deviation),
+            c: labConquest.Missions.map(x => x.difficulties[1].risks),
+            fv: labConquest.Variables
+        },
+        hqo: {
+            mt: hexConquest.Missions.map(x => getMissionTypeForLegacyOverride(x.missionType, "CT_HEX")),
+            mv: hexConquest.Missions.map(x => x.difficulties[1].deviation),
+            mf: hexConquest.Missions.map(x => factionToInt(x.faction)),
+            c: hexConquest.Missions.map(x => x.difficulties[1].risks),
+            fv: hexConquest.Variables
+        },
+        sfn: [550, 553, 554, 555][halfHour % 4],
+        tcend26: true,
+        tcaz: 3
+    };
+    if (Array.isArray(config.worldState?.circuitGameModes)) {
+        tmp.edg = config.worldState.circuitGameModes as TCircuitGameMode[];
+    }
+    worldState.Tmp = JSON.stringify(tmp);
+
+    if (convertGoals && buildVersion < gameToBuildVersionInt["20.4.0"]) {
+        worldState.Version = 9;
+        convertGoalsToV9(worldState.Goals);
+    }
+
+    // This must be the last field in these versions.
+    if (buildVersion >= gameToBuildVersionInt["18.18.0"] && buildVersion <= gameToBuildVersionInt["20.4.0"]) {
+        worldState.WorldSeed = "4763605";
+    }
+
+    return worldState;
+};
+
+const convertGoalsToV9 = (goals: IGoal[]): void => {
+    for (let i = 0; i < goals.length; i++) {
+        const g = goals[i];
+        goals[i] = {
+            _id: g._id,
+            Activation: g.Activation,
+            AltActivation: g.AltActivation,
+            Expiry: g.Expiry,
+
+            Count: g.Count,
+            CountAlt: g.CountAlt,
+            ParentCountClamp: g.ParentCountClamp,
+            HealthPct: g.HealthPct,
+
+            Icon: g.Icon,
+            Desc: g.Desc,
+            CommunityReqDesc: g.CommunityReqDesc,
+            ToolTip: g.ToolTip,
+            Faction: g.Faction,
+
+            Goal: g.Goal,
+            GoalInterim: g.InterimGoals && g.InterimGoals[0] ? g.InterimGoals[0] : undefined,
+            GoalInterim2: g.InterimGoals && g.InterimGoals[1] ? g.InterimGoals[1] : undefined,
+            BonusGoal: g.BonusGoal,
+
+            Success: g.Success,
+            Personal: g.Personal,
+            Best: g.Best,
+            Ongoing: g.Ongoing,
+            Bounty: g.Bounty,
+            Fomorian: g.Fomorian,
+            Invasion: g.Invasion,
+            ClampNodeScores: g.ClampNodeScores,
+            Roaming: g.Roaming,
+            PvpRep: g.PvpRep,
+
+            Transmission: g.Transmission,
+            ItemType: g.ItemType,
+
+            Tag: g.Tag,
+            ParentTag: g.ParentTag,
+            PrereqGoalTags: g.PrereqGoalTags,
+
+            Node: g.Node,
+            VictimNode: g.VictimNode,
+            InvasionNode: g.InvasionNode,
+
+            ConcurrentMissionKeyNames: g.ConcurrentMissionKeyNames,
+            ConcurrentMissionInfo: g.ConcurrentMissionInfo,
+            ConcurrentNodeReqs: g.ConcurrentNodeReqs,
+            ConcurrentNodes: g.ConcurrentNodes,
+            MissionKeyName: g.MissionKeyName,
+            KeyRequired: g.KeyRequired,
+
+            Reward: g.Reward,
+            RewardInterim: g.InterimRewards && g.InterimRewards[0] ? g.InterimRewards[0] : undefined,
+            RewardInterim2: g.InterimRewards && g.InterimRewards[1] ? g.InterimRewards[1] : undefined,
+            BonusReward: g.BonusReward,
+
+            ScoreVar: g.ScoreVar,
+            ScoreLocTag: g.ScoreLocTag,
+            ScoreSumTag: g.ScoreSumTag,
+            ScoreMaxTag: g.ScoreMaxTag,
+            ScoreMaxNode: g.ScoreMaxNode,
+            ArchiveTag: g.JobAffiliationTag,
+
+            MissionInfo: g.MissionInfo,
+
+            SuccessHubEvent: g.SuccessHubEvent,
+            FailureHubEvent: g.FailureHubEvent,
+            ContinuousHubEvent: g.ContinuousHubEvent,
+
+            Types: g.Types,
+            RewardRegion: g.RewardRegion,
+
+            RegionDrops: g.RegionDrops,
+            ArchwingDrops: g.ArchwingDrops,
+
+            Diorama: g.Diorama,
+            RadioSound: g.RadioSound,
+
+            MaxConclave: g.MaxConclave,
+            BonusMaxConclave: g.BonusMaxConclave,
+
+            BonusLevelModifier: g.BonusLevelModifier,
+            BonusWaveModifier: g.BonusWaveModifier
+        } as IGoalV9;
+    }
+};
+
+export const populateFissures = async (worldState: IWorldState): Promise<void> => {
+    const buildVersion = buildVersionToInt(worldState.BuildLabel);
+    if (buildVersion < gameToBuildVersionInt["18.16.0"]) return;
+    if (config.worldState?.allTheFissures) {
+        let i = 0;
+        for (const [tier, nodes] of Object.entries(fissureMissions)) {
+            for (const node of nodes) {
+                const meta = ExportRegions[node];
+                worldState.ActiveMissions.push({
+                    _id: toOid2((i++).toString().padStart(8, "0") + "8e0c70ba050f1eb7", buildVersion),
+                    Region: meta.systemIndex + 1,
+                    Seed: 1337,
+                    Activation: toMongoDate2(1000000000000, buildVersion),
+                    Expiry: toMongoDate2(2000000000000, buildVersion),
+                    Node: node,
+                    MissionType: meta.missionType,
+                    Modifier: tier,
+                    Hard: config.worldState.allTheFissures == "hard"
+                });
+            }
+        }
+    } else {
+        const fissures = await Fissure.find({});
+        for (const fissure of fissures) {
+            const meta = ExportRegions[fissure.Node];
+            worldState.ActiveMissions.push({
+                _id: toOid2(fissure._id, buildVersion),
+                Region: meta.systemIndex + 1,
+                Seed: 1337,
+                Activation:
+                    fissure.Activation.getTime() < Date.now() // Activation is in the past?
+                        ? toMongoDate2(1000000000000, buildVersion) // Let the client know 'explicitly' to avoid interference from time constraints.
+                        : toMongoDate2(fissure.Activation, buildVersion),
+                Expiry: toMongoDate2(fissure.Expiry, buildVersion),
+                Node: fissure.Node,
+                MissionType: meta.missionType,
+                Modifier: fissure.Modifier,
+                Hard: fissure.Hard
+            });
+        }
+    }
+    worldState.ActiveMissions = worldState.ActiveMissions.filter(fissure => {
+        const meta = ExportRegions[fissure.Node];
+        if (
+            (meta.faction == "FC_MITW" || fissure.Modifier == "VoidT6") &&
+            buildVersion < gameToBuildVersionInt["35.5.0"]
+        ) {
+            return false;
+        }
+        if (fissure.Hard && buildVersion < gameToBuildVersionInt["32.0.0"]) {
+            return false;
+        }
+        if (meta.systemIndex == 16 && buildVersion < gameToBuildVersionInt["29.0.0"]) {
+            return false;
+        }
+        if (fissure.Modifier == "VoidT5" && buildVersion < gameToBuildVersionInt["26.0.0"]) {
+            return false;
+        }
+        if (fissure.MissionType == "MT_ARTIFACT" && buildVersion < gameToBuildVersionInt["25.7.0"]) {
+            return false;
+        }
+        if (
+            meta.systemIndex == 17 &&
+            buildVersion < gameToBuildVersionInt["18.0.2"] // Should be 18.0.0
+        ) {
+            return false;
+        }
+        return true;
+    });
+    if (buildVersion < gameToBuildVersionInt["32.0.0"]) {
+        for (const fissure of worldState.ActiveMissions) {
+            delete fissure.Hard;
+        }
+    }
+};
+
+export const populateDailyDeal = async (worldState: IWorldState): Promise<void> => {
+    const buildVersion = buildVersionToInt(worldState.BuildLabel);
+    const dailyDeals = await DailyDeal.find({});
+    for (const dailyDeal of dailyDeals) {
+        const meta = darvoDeals.find(d => d.StoreItem == dailyDeal.StoreItem);
+        if ((!meta || buildVersion >= meta.minBuildVersionInt) && dailyDeal.Expiry.getTime() > Date.now()) {
+            worldState.DailyDeals.push({
+                StoreItem: dailyDeal.StoreItem,
+                Activation: toMongoDate2(dailyDeal.Activation, buildVersion),
+                Expiry: toMongoDate2(dailyDeal.Expiry, buildVersion),
+                Discount: dailyDeal.Discount,
+                OriginalPrice: dailyDeal.OriginalPrice,
+                SalePrice: dailyDeal.SalePrice,
+                AmountTotal: Math.round(dailyDeal.AmountTotal * (config.worldState?.darvoStockMultiplier ?? 1)),
+                AmountSold: dailyDeal.AmountSold
+            });
+        }
+    }
+};
+
+export const idToBountyCycle = (id: string): number => {
+    return Math.round((parseInt(id.substring(0, 8), 16) - bountyEpoch) / eidolonCycleDuration);
+};
+
+export const idToDay = (id: string): number => {
+    return Math.trunc((parseInt(id.substring(0, 8), 16) * 1000 - EPOCH) / 86400_000);
+};
+
+export const idToWeek = (id: string): number => {
+    return Math.trunc((parseInt(id.substring(0, 8), 16) * 1000 - EPOCH) / 604800_000);
+};
+
+export const getLiteSortie = (week: number): ILiteSortie => {
+    const boss = (["SORTIE_BOSS_AMAR", "SORTIE_BOSS_NIRA", "SORTIE_BOSS_BOREAL"] as const)[week % 3];
+    const showdownNode = ["SolNode99", "SolNode53", "SolNode24"][week % 3];
+    const systemIndex = [3, 4, 2][week % 3]; // Mars, Jupiter, Earth
+
+    const nodes: string[] = [];
+    for (const [key, value] of Object.entries(ExportRegions)) {
+        if (
+            value.systemIndex === systemIndex &&
+            (value.faction == "FC_GRINEER" || value.faction == "FC_CORPUS") &&
+            !isArchwingMission(value) &&
+            value.missionType != "MT_ASSASSINATION" &&
+            value.missionType != "MT_JUNCTION" &&
+            value.missionType != "MT_LANDSCAPE" &&
+            value.missionType != "MT_RAILJACK" &&
+            key != "SolNode63" && // This node uses GrineerForestTilesetCaves which only supports MT_CAPTURE, which is not valid for LiteSorties.
+            key != "SolNode15" // This node uses GrineerGalleonTileset which seems to not support LiteSorties
+        ) {
+            nodes.push(key);
+        }
+    }
+
+    const seed = new SRng(week).randomInt(0, 100_000);
+    const rng = new SRng(seed);
+    const firstNodeIndex = rng.randomInt(0, nodes.length - 1);
+    const firstNode = nodes[firstNodeIndex];
+    nodes.splice(firstNodeIndex, 1);
+
+    const weekStart = EPOCH + week * 604800000;
+    const weekEnd = weekStart + 604800000;
+    return {
+        _id: {
+            $oid: ((weekStart / 1000) & 0xffffffff).toString(16).padStart(8, "0") + "5e23a244740a190c"
+        },
+        Activation: { $date: { $numberLong: weekStart.toString() } },
+        Expiry: { $date: { $numberLong: weekEnd.toString() } },
+        Reward: "/Lotus/Types/Game/MissionDecks/ArchonSortieRewards",
+        Seed: seed,
+        Boss: boss,
+        Missions: [
+            {
+                missionType: rng.randomElement([
+                    "MT_INTEL",
+                    "MT_MOBILE_DEFENSE",
+                    "MT_EXTERMINATION",
+                    "MT_SABOTAGE",
+                    "MT_RESCUE"
+                ])!,
+                node: firstNode
+            },
+            {
+                missionType: rng.randomElement([
+                    "MT_DEFENSE",
+                    "MT_TERRITORY",
+                    "MT_ARTIFACT",
+                    "MT_EXCAVATE",
+                    "MT_SURVIVAL"
+                ])!,
+                node: rng.randomElement(nodes)!
+            },
+            {
+                missionType: "MT_ASSASSINATION",
+                node: showdownNode
+            }
+        ]
+    };
+};
+
+export const getEndlessXpChoices = (
+    week: number,
+    buildVersion: number,
+    fullyStocked: boolean = config.fullyStockedVendors ?? false
+): IEndlessXpChoice[] => {
+    const normalChoices = [
+        ["Nidus", "Octavia", "Harrow"],
+        ["Gara", "Khora", "Revenant"],
+        ["Garuda", "Baruuk", "Hildryn"],
+        ["Excalibur", "Trinity", "Ember"],
+        ["Loki", "Mag", "Rhino"],
+        ["Ash", "Frost", "Nyx"],
+        ["Saryn", "Vauban", "Nova"],
+        ["Nekros", "Valkyr", "Oberon"],
+        ["Hydroid", "Mirage", "Limbo"],
+        ["Mesa", "Chroma", "Atlas"],
+        ["Ivara", "Inaros", "Titania"]
+    ];
+    const hardChoices = [
+        ["Boar", "Gammacor", "Angstrum", "Gorgon", "Anku"],
+        ["Bo", "Latron", "Furis", "Furax", "Strun"],
+        ["Lex", "Magistar", "Boltor", "Bronco", "CeramicDagger"],
+        ["Torid", "DualToxocyst", "DualIchor", "Miter", "Atomos"],
+        ["AckAndBrunt", "Soma", "Vasto", "NamiSolo", "Burston"],
+        ["Zylok", "Sibear", "Dread", "Despair", "Hate"],
+        ["Dera", "Sybaris", "Cestra", "Sicarus", "Okina"],
+        ...(buildVersion >= gameToBuildVersionInt["43.0.0"]
+            ? [["Vectis", "Stug", "Ballistica", "Destreza", "Obex"]]
+            : []),
+        ["Braton", "Lato", "Skana", "Paris", "Kunai"]
+    ];
+    const hardChoicePool = fullyStocked ? [...new Set(hardChoices.flat())] : hardChoices[week % hardChoices.length];
+    return [
+        {
+            Category: "EXC_NORMAL",
+            Choices: normalChoices[week % normalChoices.length]
+        },
+        {
+            Category: "EXC_HARD",
+            Choices: hardChoicePool
+        }
+    ];
+};
+
+export const selfTestEndlessXpChoices = (): boolean => {
+    const u42 = gameToBuildVersionInt["42.0.0"];
+    const u43 = gameToBuildVersionInt["43.0.0"];
+    const rotated = getEndlessXpChoices(0, u43, false);
+    const fullU42 = getEndlessXpChoices(0, u42, true);
+    const fullU43 = getEndlessXpChoices(0, u43, true);
+    const fullU43NextWeek = getEndlessXpChoices(1, u43, true);
+    const hard = (choices: IEndlessXpChoice[]): string[] => choices.find(x => x.Category == "EXC_HARD")!.Choices;
+    const normal = (choices: IEndlessXpChoice[]): string[] => choices.find(x => x.Category == "EXC_NORMAL")!.Choices;
+    const fullU43Hard = hard(fullU43);
+    const allGood =
+        hard(rotated).length == 5 &&
+        normal(rotated).length == 3 &&
+        hard(fullU42).length == 40 &&
+        !hard(fullU42).includes("Vectis") &&
+        fullU43Hard.length == 45 &&
+        new Set(fullU43Hard).size == fullU43Hard.length &&
+        fullU43Hard.includes("Vectis") &&
+        fullU43Hard.includes("Obex") &&
+        normal(fullU43).length == 3 &&
+        JSON.stringify(fullU43Hard) == JSON.stringify(hard(fullU43NextWeek));
+    if (!allGood) {
+        logger.warn(`Circuit full-stock choice self test failed`);
+    }
+    return allGood;
+};
+
+export const isArchwingMission = (node: IRegion): boolean => {
+    if (node.name.indexOf("Archwing") != -1) {
+        return true;
+    }
+    // SettlementNode10
+    if (node.missionType == "MT_RACE") {
+        return true;
+    }
+    return false;
+};
+
+export const getNightwaveSyndicateTag = (buildVersion: number = BV_LATEST): string | undefined => {
+    if (config.worldState?.nightwaveOverride) {
+        const override = config.worldState.nightwaveOverride;
+        if (override == "disable") {
+            return undefined;
+        }
+        if (!(override in nightwaveTagToSeason)) {
+            logger.warn(`ignoring invalid config value for worldState.nightwaveOverride`, {
+                value: override,
+                valid_values: Object.keys(nightwaveTagToSeason)
+            });
+            return undefined;
+        }
+        return isNightwaveTagAvailable(override, buildVersion) ? override : undefined;
+    }
+    return Object.keys(nightwaveTagToSeason).find(tag => isNightwaveTagAvailable(tag, buildVersion));
+};
+
+const isNightwaveTagAvailable = (tag: string, buildVersion: number): boolean => {
+    if (!(tag in nightwaveTagMinBuildVersion)) {
+        return false;
+    }
+    const minBuildVersion = nightwaveTagMinBuildVersion[tag];
+    return tag == "RadioLegionIntermission8Syndicate"
+        ? buildVersion > gameToBuildVersionInt[minBuildVersion]
+        : buildVersion >= gameToBuildVersionInt[minBuildVersion];
+};
+
+export const nightwaveTagToSeason: Record<string, number> = {
+    RadioLegionIntermission16Syndicate: 18, // Nightwave Mix: Amir's Shockwave
+    RadioLegionIntermission15Syndicate: 17, // Nora's Mix: Time Tempests
+    RadioLegionIntermission14Syndicate: 16, // Nora's Mix: Dreams of the Dead
+    RadioLegionIntermission13Syndicate: 15, // Nora's Mix Vol. 9
+    RadioLegionIntermission12Syndicate: 14, // Nora's Mix Vol. 8
+    RadioLegionIntermission11Syndicate: 13, // Nora's Mix Vol. 7
+    RadioLegionIntermission10Syndicate: 12, // Nora's Mix Vol. 6
+    RadioLegionIntermission9Syndicate: 11, // Nora's Mix Vol. 5
+    RadioLegionIntermission8Syndicate: 10, // Nora's Mix Vol. 4
+    RadioLegionIntermission7Syndicate: 9, // Nora's Mix Vol. 3
+    RadioLegionIntermission6Syndicate: 8, // Nora's Mix Vol. 2
+    RadioLegionIntermission5Syndicate: 7, // Nora's Mix Vol. 1
+    RadioLegionIntermission4Syndicate: 6, // Nora's Choice
+    RadioLegionIntermission3Syndicate: 5, // Intermission III
+    RadioLegion3Syndicate: 4, // Glassmaker
+    RadioLegionIntermission2Syndicate: 3, // Intermission II
+    RadioLegion2Syndicate: 2, // The Emissary
+    RadioLegionIntermissionSyndicate: 1, // Intermission I
+    RadioLegionSyndicate: 0 // The Wolf of Saturn Six
+};
+
+export const nightwaveTagToSeasonName: Record<string, string> = {
+    RadioLegionIntermission16Syndicate: "/Lotus/Language/Syndicates/RadioLegionNorasChoiceThirteenSeasonTitle",
+    RadioLegionIntermission15Syndicate: "/Lotus/Language/Syndicates/RadioLegionNorasChoiceTwelveSeasonTitle",
+    RadioLegionIntermission14Syndicate: "/Lotus/Language/Syndicates/RadioLegionNorasChoiceElevenSeasonTitle",
+    RadioLegionIntermission13Syndicate: "/Lotus/Language/Syndicates/RadioLegionNorasChoiceTenSeasonTitle",
+    RadioLegionIntermission12Syndicate: "/Lotus/Language/Syndicates/RadioLegionNorasChoiceNineSeasonTitle",
+    RadioLegionIntermission11Syndicate: "/Lotus/Language/Syndicates/RadioLegionNorasChoiceEightSeasonTitle",
+    RadioLegionIntermission10Syndicate: "/Lotus/Language/Syndicates/RadioLegionNorasChoiceSevenSeasonTitle",
+    RadioLegionIntermission9Syndicate: "/Lotus/Language/Syndicates/RadioLegionNorasChoiceSixSeasonTitle",
+    RadioLegionIntermission8Syndicate: "/Lotus/Language/Syndicates/RadioLegionNorasChoiceFiveSeasonTitle",
+    RadioLegionIntermission7Syndicate: "/Lotus/Language/Syndicates/RadioLegionNorasChoiceFourSeasonTitle",
+    RadioLegionIntermission6Syndicate: "/Lotus/Language/Syndicates/RadioLegionNorasChoiceThreeSeasonTitle",
+    RadioLegionIntermission5Syndicate: "/Lotus/Language/Syndicates/RadioLegionNorasChoiceTwoSeasonTitle",
+    RadioLegionIntermission4Syndicate: "/Lotus/Language/Syndicates/RadioLegionNorasChoiceSeasonTitle",
+    RadioLegionIntermission3Syndicate: "/Lotus/Language/Syndicates/RadioLegionShortSeasonTitle1",
+    RadioLegion3Syndicate: "/Lotus/Language/Syndicates/RadioLegionSeasonTitle3",
+    RadioLegionIntermission2Syndicate: "/Lotus/Language/Syndicates/RadioLegionShortSeasonTitle1",
+    RadioLegion2Syndicate: "/Lotus/Language/Syndicates/RadioLegionSeasonTitle2",
+    RadioLegionIntermissionSyndicate: "/Lotus/Language/Syndicates/RadioLegionShortSeasonTitle1",
+    RadioLegionSyndicate: "/Lotus/Language/Syndicates/RadioLegionSeasonTitle1"
+};
+
+export const nightwaveTagToActivation: Record<string, number> = {
+    RadioLegionIntermission16Syndicate: 1786548600000,
+    RadioLegionIntermission15Syndicate: 1775662200000,
+    RadioLegionIntermission14Syndicate: 1761589199000
+};
+
+export const selfTestCurrentNightwave = (): boolean => {
+    const tag = getNightwaveSyndicateTag(gameToBuildVersionInt["43.5.4"]);
+    if (
+        tag != "RadioLegionIntermission16Syndicate" ||
+        nightwaveTagToSeason[tag] != 18 ||
+        nightwaveTagToActivation[tag] != 1786548600000
+    ) {
+        logger.warn(`self test failed for current Nightwave build/season/activation mapping`, { tag });
+        return false;
+    }
+    const pools = getSeasonChallengePools(tag);
+    if (pools.daily.length == 0 || pools.weekly.length == 0 || pools.hardWeekly.length == 0) {
+        logger.warn(`self test failed for current Nightwave challenge pools`, {
+            tag,
+            daily: pools.daily.length,
+            weekly: pools.weekly.length,
+            hardWeekly: pools.hardWeekly.length
+        });
+        return false;
+    }
+    return true;
+};
+
+const nightwaveTagMinBuildVersion: Record<string, keyof typeof gameToBuildVersionInt> = {
+    RadioLegionIntermission16Syndicate: "43.5.0",
+    RadioLegionIntermission15Syndicate: "42.0.6",
+    RadioLegionIntermission14Syndicate: "40.0.0",
+    RadioLegionIntermission13Syndicate: "38.6.0",
+    RadioLegionIntermission12Syndicate: "38.0.8",
+    RadioLegionIntermission11Syndicate: "36.1.2",
+    RadioLegionIntermission10Syndicate: "35.5.9",
+    RadioLegionIntermission9Syndicate: "34.0.8",
+    RadioLegionIntermission8Syndicate: "33.0.10", // Actual version is U33.0.11
+    RadioLegionIntermission7Syndicate: "32.2.0",
+    RadioLegionIntermission6Syndicate: "31.6.4",
+    RadioLegionIntermission5Syndicate: "31.2.0",
+    RadioLegionIntermission4Syndicate: "30.6.0",
+    RadioLegionIntermission3Syndicate: "29.7.0",
+    RadioLegion3Syndicate: "28.3.2",
+    RadioLegionIntermission2Syndicate: "25.8.2",
+    RadioLegion2Syndicate: "25.3.0",
+    RadioLegionIntermissionSyndicate: "25.1.2",
+    RadioLegionSyndicate: "24.3.0"
+};
+
+const updateFissures = async (): Promise<void> => {
+    const fissures = await Fissure.find();
+
+    const activeNodes = new Set<string>();
+    const tierToFurthestExpiry: Record<string, number> = {
+        VoidT1: 0,
+        VoidT2: 0,
+        VoidT3: 0,
+        VoidT4: 0,
+        VoidT5: 0,
+        VoidT6: 0,
+        VoidT1Hard: 0,
+        VoidT2Hard: 0,
+        VoidT3Hard: 0,
+        VoidT4Hard: 0,
+        VoidT5Hard: 0,
+        VoidT6Hard: 0
+    };
+    for (const fissure of fissures) {
+        if (fissure.Expiry.getTime() > Date.now()) {
+            activeNodes.add(fissure.Node);
+        }
+
+        const key = fissure.Modifier + (fissure.Hard ? "Hard" : "");
+        tierToFurthestExpiry[key] = Math.max(tierToFurthestExpiry[key], fissure.Expiry.getTime());
+    }
+
+    const deadline = Date.now() - 6 * unixTimesInMs.minute;
+    for (const [tier, expiry] of Object.entries(tierToFurthestExpiry)) {
+        if (expiry < deadline) {
+            const numFissures = getRandomInt(1, 3);
+            logger.trace(`${tier} fissures expire soon, generating ${numFissures} new ones`);
+            for (let i = 0; i != numFissures; ++i) {
+                const modifier = tier.replace("Hard", "") as
+                    | "VoidT1"
+                    | "VoidT2"
+                    | "VoidT3"
+                    | "VoidT4"
+                    | "VoidT5"
+                    | "VoidT6";
+                let node: string = getRandomElement(fissureMissions[modifier])!;
+                while (activeNodes.has(node)) {
+                    logger.trace(`tried to use ${node} for a fissure, but it's already in use`);
+                    node = getRandomElement(fissureMissions[modifier])!;
+                }
+                activeNodes.add(node);
+                await Fissure.insertOne({
+                    Activation: new Date(),
+                    Expiry: new Date(Date.now() + getRandomInt(60, 120) * unixTimesInMs.minute),
+                    Node: node,
+                    Modifier: modifier,
+                    Hard: tier.indexOf("Hard") != -1 ? true : undefined
+                });
+            }
+        }
+    }
+};
+
+const updateDailyDeal = async (): Promise<void> => {
+    let darvoIndex = Math.trunc((Date.now() - 25200000) / (26 * unixTimesInMs.hour));
+    let darvoEnd;
+    do {
+        const darvoStart = darvoIndex * (26 * unixTimesInMs.hour) + 25200000;
+        darvoEnd = darvoStart + 26 * unixTimesInMs.hour;
+        const darvoOid = ((darvoStart / 1000) & 0xffffffff).toString(16).padStart(8, "0") + "adc51a72f7324d95";
+        if (!(await DailyDeal.findById(darvoOid))) {
+            const seed = new SRng(darvoIndex).randomInt(0, 100_000);
+            const rng = new SRng(seed);
+            let deal;
+            do {
+                deal = rng.randomReward(darvoDeals)!; // Using an actual sampling collected over roughly a year because I can't extrapolate an algorithm from it with enough certainty.
+                //const [storeItem, meta] = rng.randomElement(Object.entries(darvoDeals))!;
+                //const discount = Math.min(rng.randomInt(1, 9) * 10, (meta as { MaxDiscount?: number }).MaxDiscount ?? 1);
+            } while (await DailyDeal.exists({ StoreItem: deal.StoreItem }));
+            await DailyDeal.insertOne({
+                _id: darvoOid,
+                StoreItem: deal.StoreItem,
+                Activation: new Date(darvoStart),
+                Expiry: new Date(darvoEnd),
+                Discount: deal.Discount,
+                OriginalPrice: deal.OriginalPrice,
+                SalePrice: deal.SalePrice, //Math.trunc(deal.OriginalPrice * (1 - discount))
+                AmountTotal: deal.AmountTotal,
+                AmountSold: 0
+            });
+        }
+    } while (darvoEnd < Date.now() + 6 * unixTimesInMs.minute && ++darvoIndex);
+};
+
+const alertStandardResources = [
+    { path: "/Lotus/Types/Items/MiscItems/AlloyPlate", qty: 1500 },
+    { path: "/Lotus/Types/Items/MiscItems/Circuits", qty: 1500 },
+    { path: "/Lotus/Types/Items/MiscItems/ControlModule", qty: 1 },
+    { path: "/Lotus/Types/Items/MiscItems/Ferrite", qty: 3000 },
+    { path: "/Lotus/Types/Items/MiscItems/Gallium", qty: 1 },
+    { path: "/Lotus/Types/Items/MiscItems/Morphic", qty: 1 },
+    { path: "/Lotus/Types/Items/MiscItems/Nanospores", qty: 3000 },
+    { path: "/Lotus/Types/Items/MiscItems/NeuralSensor", qty: 1 },
+    { path: "/Lotus/Types/Items/MiscItems/Neurode", qty: 1 },
+    { path: "/Lotus/Types/Items/MiscItems/OrokinCell", qty: 1 },
+    { path: "/Lotus/Types/Items/MiscItems/Plastids", qty: 300 },
+    { path: "/Lotus/Types/Items/MiscItems/PolymerBundle", qty: 300 },
+    { path: "/Lotus/Types/Items/MiscItems/Rubedo", qty: 450 },
+    { path: "/Lotus/Types/Items/MiscItems/Salvage", qty: 300 }
+];
+
+const alertAuras = [
+    "/Lotus/Upgrades/Mods/Aura/PlayerEnemyRadarAuraMod",
+    "/Lotus/Upgrades/Mods/Aura/PlayerEnergyRegenAuraMod",
+    "/Lotus/Upgrades/Mods/Aura/PlayerHealthRegenAuraMod",
+    "/Lotus/Upgrades/Mods/Aura/PlayerMeleeAuraMod",
+    "/Lotus/Upgrades/Mods/Aura/PlayerPistolAmmoAuraMod",
+    "/Lotus/Upgrades/Mods/Aura/PlayerRifleAmmoAuraMod",
+    "/Lotus/Upgrades/Mods/Aura/PlayerRifleDamageAuraMod",
+    "/Lotus/Upgrades/Mods/Aura/PlayerShellAmmoAuraMod",
+    "/Lotus/Upgrades/Mods/Aura/PlayerSniperAmmoAuraMod",
+    "/Lotus/Upgrades/Mods/Aura/PlayerHealthAuraMod",
+    "/Lotus/Upgrades/Mods/Aura/EnemyArmorReductionAuraMod",
+    "/Lotus/Upgrades/Mods/Aura/EnemyShieldReductionAuraMod",
+    "/Lotus/Upgrades/Mods/Aura/InfestationSpeedReductionAuraMod",
+    "/Lotus/Upgrades/Mods/Aura/PlayerHolsterSpeedAuraMod",
+    "/Lotus/Upgrades/Mods/Aura/PlayerSprintAuraMod",
+    "/Lotus/Upgrades/Mods/Aura/PlayerSniperDamageAuraMod",
+    "/Lotus/Upgrades/Mods/Aura/PlayerLootRadarAuraMod",
+    "/Lotus/Upgrades/Mods/Aura/RobotPoorAimAuraMod"
+];
+
+const alertHelmets = [
+    "/Lotus/Types/Recipes/Helmets/StatlessAshAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/StatlessBansheeAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/StatlessEmberAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/StatlessExcaliburAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/StatlessFrostAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/StatlessLokiAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/StatlessMagAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/StatlessNyxAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/StatlessRhinoAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/StatlessSarynAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/StatlessTrinityAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/StatlessVoltAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/ValkyrBastetHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/OberonAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/ZephyrCierzoHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/HarlequinAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/LimboAltBHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/MirageAltBHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/StatlessV2AshAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/StatlessV2BansheeAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/StatlessV2EmberAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/StatlessV2ExcaliburAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/StatlessV2FrostAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/StatlessV2LokiAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/StatlessV2MagAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/StatlessV2NyxAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/StatlessV2RhinoAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/StatlessV2SarynAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/StatlessV2TrinityAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/StatlessV2VoltAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/OberonAltBHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/ValkyrAltBHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/PirateAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/LimboAristeasHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/ZephyrTenguHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/CowgirlAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/MesaAltBHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/DragonAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/ChromaAltBHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/VaubanHelmetSoldierBlueprint",
+    "/Lotus/Types/Recipes/Helmets/ExcaliburMordredHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/AnimaAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/RangerAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/NezhaAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/SandmanAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/BrawlerAltTwoHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/StatlessVaubanAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/StatlessV2VaubanAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/StatlessNovaAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/NekrosAraknidHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/NovaQuantumHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/NekrosShroudHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/NovaSlipstreamHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/LokiEnigmaHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/PirateAltBHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/BrawlerAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/WukongAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/FairyAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/NidusAltHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/SandmanAltBHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/RangerAltBHelmetBlueprint",
+    "/Lotus/Types/Recipes/Helmets/BardAltHelmetBlueprint"
+];
+
+const alertVaubanParts = [
+    "/Lotus/Types/Recipes/WarframeRecipes/TrapperChassisBlueprint",
+    "/Lotus/Types/Recipes/WarframeRecipes/TrapperSystemsBlueprint",
+    "/Lotus/Types/Recipes/WarframeRecipes/TrapperHelmetBlueprint"
+];
+
+const alertWeapons = [
+    "/Lotus/Types/Recipes/Weapons/CeramicDaggerBlueprint",
+    "/Lotus/Types/Recipes/Weapons/DarkDaggerBlueprint",
+    "/Lotus/Types/Recipes/Weapons/HeatDaggerBlueprint",
+    "/Lotus/Types/Recipes/Weapons/HeatSwordBlueprint",
+    "/Lotus/Types/Recipes/Weapons/JawBlueprint",
+    "/Lotus/Types/Recipes/Weapons/PangolinSwordBlueprint",
+    "/Lotus/Types/Recipes/Weapons/PlasmaSwordBlueprint",
+    "/Lotus/Types/Recipes/Weapons/GlaiveBlueprint",
+    "/Lotus/Types/Recipes/DarkSwordBlueprint",
+    "/Lotus/Types/Recipes/Weapons/Skins/DaggerAxeBlueprint",
+    "/Lotus/Types/Recipes/Weapons/Skins/DualDaggerAxeBlueprint",
+    "/Lotus/Types/Recipes/Weapons/Skins/GrnHammerBlueprint",
+    "/Lotus/Types/Recipes/Weapons/Skins/GrnAxeBlueprint"
+];
+
+const alertNightmareMods = [
+    "/Lotus/Upgrades/Mods/Pistol/DualStat/StunningSpeedMod",
+    "/Lotus/Upgrades/Mods/Shotgun/DualStat/BlazeMod",
+    "/Lotus/Upgrades/Mods/Rifle/DualStat/WildfireMod",
+    "/Lotus/Upgrades/Mods/Shotgun/DualStat/AcceleratedBlastMod",
+    "/Lotus/Upgrades/Mods/Warframe/DualStat/ConstitutionMod",
+    "/Lotus/Upgrades/Mods/Pistol/DualStat/IceStormMod",
+    "/Lotus/Upgrades/Mods/Warframe/DualStat/FortitudeMod",
+    "/Lotus/Upgrades/Mods/Rifle/DualStat/HammerShotMod",
+    "/Lotus/Upgrades/Mods/Melee/DualStat/FocusEnergyMod",
+    "/Lotus/Upgrades/Mods/Melee/DualStat/RendingStrikeMod",
+    "/Lotus/Upgrades/Mods/Rifle/DualStat/ShredMod",
+    "/Lotus/Upgrades/Mods/Pistol/DualStat/GrinderMod",
+    "/Lotus/Upgrades/Mods/Warframe/DualStat/VigorMod",
+    "/Lotus/Upgrades/Mods/Warframe/DualStat/RunSpeedArmorMod",
+    "/Lotus/Upgrades/Mods/Shotgun/DualStat/ReloadSpeedPunchThroughMod"
+];
+
+const alertOrokinBP = [
+    "/Lotus/Types/Recipes/Components/OrokinCatalystBlueprint",
+    "/Lotus/Types/Recipes/Components/OrokinReactorBlueprint"
+];
+
+const alertDurationMultipliers = new Map<string, number>([
+    ["/Lotus/Types/Recipes/Components/OrokinCatalystBlueprint", 2],
+    ["/Lotus/Types/Recipes/Components/OrokinReactorBlueprint", 2],
+    ["/Lotus/Types/Recipes/Components/FormaBlueprint", 2],
+    ["/Lotus/Types/Game/KubrowPet/Eggs/KubrowEgg", 2],
+    ["/Lotus/Types/Recipes/WarframeRecipes/TrapperChassisBlueprint", 2],
+    ["/Lotus/Types/Recipes/WarframeRecipes/TrapperSystemsBlueprint", 2],
+    ["/Lotus/Types/Recipes/WarframeRecipes/TrapperHelmetBlueprint", 2],
+    ["/Lotus/Types/Game/CatbrowPet/CatbrowGeneticSignature", 2],
+    ["/Lotus/Types/Items/MiscItems/Eventium", 2]
+]);
+
+const getVersionAppropriateHelmet = (helmetPath: string, buildVersion: number): string => {
+    let isStore = false;
+    let typePath = helmetPath;
+    if (helmetPath.startsWith("/Lotus/StoreItems/")) {
+        isStore = true;
+        typePath = "/Lotus/" + helmetPath.substring("/Lotus/StoreItems/".length);
+    }
+
+    const isPreU13_2_3 = buildVersion < gameToBuildVersionInt["13.2.3"]; // arcane helmets were available until U13.2.3
+    let resultPath = typePath;
+
+    if (isPreU13_2_3) {
+        if (typePath.includes("Statless")) {
+            const arcanePath = typePath.replace("Statless", "");
+            if (arcanePath in ExportRecipes) {
+                resultPath = arcanePath;
+            }
+        }
+    } else {
+        if (!typePath.includes("Statless")) {
+            const baseName = typePath.replace("/Lotus/Types/Recipes/Helmets/", "");
+            const statlessPath = "/Lotus/Types/Recipes/Helmets/Statless" + baseName;
+            if (statlessPath in ExportRecipes) {
+                resultPath = statlessPath;
+            }
+        }
+    }
+
+    return isStore ? toStoreItem(resultPath) : resultPath;
+};
+
+const getEligibleAlertNodes = (regions: Record<string, IRegion>, buildVersion: number): string[] => {
+    const eligibleNodes: string[] = [];
+    const validMissionTypes = new Set([
+        "MT_SURVIVAL",
+        "MT_DEFENSE",
+        "MT_RESCUE",
+        "MT_CAPTURE",
+        "MT_EXTERMINATION",
+        "MT_SABOTAGE",
+        "MT_MOBILE_DEFENSE",
+        "MT_EXCAVATE",
+        "MT_INTEL",
+        "MT_TERRITORY",
+        "MT_PURSUIT",
+        "MT_SABOTAGE",
+        "MT_RACE"
+    ]);
+    const validFactions = new Set(["FC_GRINEER", "FC_CORPUS", "FC_INFESTATION", "FC_OROKIN"]);
+
+    for (const [nodeId, nodeData] of Object.entries(regions)) {
+        if (!isRegionAvailableIn(nodeId, nodeData, buildVersion)) {
+            continue;
+        }
+        if (!nodeId.startsWith("SolNode") && !nodeId.startsWith("SettlementNode")) {
+            continue;
+        }
+        if (nodeData.nodeType !== 0) {
+            continue;
+        }
+        if (!validMissionTypes.has(nodeData.missionType)) {
+            continue;
+        }
+        if (!nodeData.faction || !validFactions.has(nodeData.faction)) {
+            continue;
+        }
+
+        if (
+            nodeData.systemIndex == 16 || // Deimos/Derelict
+            nodeData.systemIndex > 18 // Kuva fortress and more modern things
+        ) {
+            continue;
+        }
+        eligibleNodes.push(nodeId);
+    }
+    return eligibleNodes;
+};
+
+const ALERT_INTERVAL_MS = 25 * unixTimesInMs.minute;
+const ALERT_BASE_DURATION_MS = 40 * unixTimesInMs.minute;
+
+const alertDescTexts: Record<string, string[] | undefined> = {
+    MT_ASSASSINATION: [
+        "/Lotus/Language/Alerts/AssassinationDesc1",
+        "/Lotus/Language/Alerts/AssassinationDesc9",
+        "/Lotus/Language/Alerts/AssassinationDesc10",
+        "/Lotus/Language/Alerts/AssassinationDesc11",
+        "/Lotus/Language/Alerts/AssassinationDesc14"
+    ],
+    MT_EXTERMINATION: [
+        "/Lotus/Language/Alerts/ExterminationDesc3",
+        "/Lotus/Language/Alerts/ExterminationDesc4",
+        "/Lotus/Language/Alerts/ExterminationDesc5",
+        "/Lotus/Language/Alerts/ExterminationDesc6",
+        "/Lotus/Language/Alerts/ExterminationDesc7",
+        "/Lotus/Language/Alerts/ExterminationDesc8",
+        "/Lotus/Language/Alerts/ExterminationDesc9",
+        "/Lotus/Language/Alerts/ExterminationDesc11",
+        "/Lotus/Language/Alerts/ExterminationDesc13",
+        "/Lotus/Language/Alerts/ExterminationDesc14"
+    ],
+    MT_SURVIVAL: [
+        "/Lotus/Language/Alerts/RaidDesc15",
+        "/Lotus/Language/Alerts/RaidDesc19",
+        "/Lotus/Language/Alerts/RaidDesc22",
+        "/Lotus/Language/Alerts/RaidDesc23",
+        "/Lotus/Language/Alerts/DefenseDesc9",
+        "/Lotus/Language/Alerts/DefenseDesc15"
+    ],
+    MT_RESCUE: [
+        "/Lotus/Language/Alerts/RescueDesc1",
+        "/Lotus/Language/Alerts/RescueDesc2",
+        "/Lotus/Language/Alerts/RescueDesc3",
+        "/Lotus/Language/Alerts/RescueDesc4",
+        "/Lotus/Language/Alerts/RescueDesc5",
+        "/Lotus/Language/Alerts/RescueDesc6",
+        "/Lotus/Language/Alerts/RescueDesc7",
+        "/Lotus/Language/Alerts/RescueDesc8",
+        "/Lotus/Language/Alerts/RescueDesc9",
+        "/Lotus/Language/Alerts/RescueDesc10",
+        "/Lotus/Language/Alerts/RescueDesc11",
+        "/Lotus/Language/Alerts/RescueDesc12",
+        "/Lotus/Language/Alerts/RescueDesc14"
+    ],
+    MT_SABOTAGE: [
+        "/Lotus/Language/Alerts/SabotageDesc2",
+        "/Lotus/Language/Alerts/SabotageDesc6",
+        "/Lotus/Language/Alerts/SabotageDesc7",
+        "/Lotus/Language/Alerts/SabotageDesc15",
+        "/Lotus/Language/Alerts/SabotageDesc16",
+        "/Lotus/Language/Alerts/SabotageDesc17",
+        "/Lotus/Language/Alerts/SabotageDesc18",
+        "/Lotus/Language/Alerts/SabotageDesc21",
+        "/Lotus/Language/Alerts/SabotageDesc23",
+        "/Lotus/Language/Alerts/SabotageDesc24",
+        "/Lotus/Language/Alerts/SabotageDesc26",
+        "/Lotus/Language/Alerts/SabotageDesc28"
+    ],
+    MT_CAPTURE: [
+        "/Lotus/Language/Alerts/CaptureDesc1",
+        "/Lotus/Language/Alerts/CaptureDesc2",
+        "/Lotus/Language/Alerts/CaptureDesc3",
+        "/Lotus/Language/Alerts/CaptureDesc4",
+        "/Lotus/Language/Alerts/CaptureDesc5",
+        "/Lotus/Language/Alerts/CaptureDesc9",
+        "/Lotus/Language/Alerts/CaptureDesc10",
+        "/Lotus/Language/Alerts/CaptureDesc12",
+        "/Lotus/Language/Alerts/CaptureDesc14"
+    ],
+    MT_COUNTER_INTEL: [
+        "/Lotus/Language/Alerts/CounterIntelDesc1",
+        "/Lotus/Language/Alerts/CounterIntelDesc2",
+        "/Lotus/Language/Alerts/CounterIntelDesc4",
+        "/Lotus/Language/Alerts/CounterIntelDesc5",
+        "/Lotus/Language/Alerts/CounterIntelDesc10",
+        "/Lotus/Language/Alerts/CounterIntelDesc14",
+        "/Lotus/Language/Alerts/CounterIntelDesc15",
+        "/Lotus/Language/Alerts/CounterIntelDesc20",
+        "/Lotus/Language/Alerts/CounterIntelDesc22",
+        "/Lotus/Language/Alerts/CounterIntelDesc25"
+    ],
+    MT_INTEL: [
+        "/Lotus/Language/Alerts/IntelDesc1",
+        "/Lotus/Language/Alerts/IntelDesc3",
+        "/Lotus/Language/Alerts/IntelDesc10",
+        "/Lotus/Language/Alerts/IntelDesc15",
+        "/Lotus/Language/Alerts/IntelDesc20",
+        "/Lotus/Language/Alerts/IntelDesc21",
+        "/Lotus/Language/Alerts/IntelDesc24",
+        "/Lotus/Language/Alerts/IntelDesc25",
+        "/Lotus/Language/Alerts/IntelDesc29",
+        "/Lotus/Language/Alerts/IntelDesc30",
+        "/Lotus/Language/Alerts/IntelDesc31",
+        "/Lotus/Language/Alerts/IntelDesc32",
+        "/Lotus/Language/Alerts/IntelDesc33",
+        "/Lotus/Language/Alerts/IntelDesc34",
+        "/Lotus/Language/Alerts/IntelDesc36",
+        "/Lotus/Language/Alerts/IntelDesc37",
+        "/Lotus/Language/Alerts/IntelDesc39",
+        "/Lotus/Language/Alerts/IntelDesc40",
+        "/Lotus/Language/Alerts/IntelDesc42",
+        "/Lotus/Language/Alerts/IntelDesc43",
+        "/Lotus/Language/Alerts/IntelDesc44",
+        "/Lotus/Language/Alerts/IntelDesc47"
+    ],
+    MT_DEFENSE: ["/Lotus/Language/Alerts/DefenseDesc9", "/Lotus/Language/Alerts/DefenseDesc15"],
+    MT_MOBILE_DEFENSE: [
+        "/Lotus/Language/Alerts/DefenseDesc2",
+        "/Lotus/Language/Alerts/DefenseDesc15",
+        "/Lotus/Language/Alerts/DefenseDesc19"
+    ],
+    MT_TERRITORY: [
+        "/Lotus/Language/Alerts/IntelDesc26",
+        "/Lotus/Language/Alerts/IntelDesc25",
+        "/Lotus/Language/Alerts/CounterIntelDesc2"
+    ],
+    MT_RETRIEVAL: [
+        "/Lotus/Language/Alerts/RaidDesc15",
+        "/Lotus/Language/Alerts/IntelDesc39",
+        "/Lotus/Language/Alerts/IntelDesc34"
+    ],
+    MT_HIVE: ["/Lotus/Language/Alerts/SabotageDesc6"],
+    MT_EXCAVATE: ["/Lotus/Language/Alerts/IntelDesc4", "/Lotus/Language/Alerts/IntelDesc22"]
+};
+
+const getFilteredAlertWeapons = (buildVersion: number): string[] => {
+    return alertWeapons.filter(weapon => {
+        if (weapon.includes("DaggerAxe")) return buildVersion >= gameToBuildVersionInt["7.7.1"];
+        if (weapon.includes("Grn")) return buildVersion >= gameToBuildVersionInt["7.7.1"];
+        if (weapon.includes("Glaive")) return buildVersion >= gameToBuildVersionInt["7.9.0"];
+        return true;
+    });
+};
+
+const getFilteredAlertHelmets = (buildVersion: number): string[] => {
+    return alertHelmets.filter(helmet => {
+        if (helmet.includes("BardAlt")) return buildVersion >= gameToBuildVersionInt["20.0.0"];
+        if (helmet.includes("NidusAlt")) return buildVersion >= gameToBuildVersionInt["19.5.3"];
+        if (helmet.includes("FairyAlt")) return buildVersion >= gameToBuildVersionInt["19.0.1"];
+        if (helmet.includes("WukongAlt")) return buildVersion >= gameToBuildVersionInt["18.0.2"];
+        if (helmet.includes("BrawlerAlt")) return buildVersion >= gameToBuildVersionInt["17.7.1"];
+        if (helmet.includes("SandmanAlt")) return buildVersion >= gameToBuildVersionInt["18.5.0"];
+        if (helmet.includes("NezhaAlt")) return buildVersion >= gameToBuildVersionInt["18.0.2"];
+        if (helmet.includes("RangerAlt")) return buildVersion >= gameToBuildVersionInt["18.0.2"];
+        if (helmet.includes("AnimaAlt")) return buildVersion >= gameToBuildVersionInt["17.7.1"];
+        if (helmet.includes("ChromaAlt") || helmet.includes("DragonAlt"))
+            return buildVersion >= gameToBuildVersionInt["16.0.2"];
+        if (helmet.includes("MesaAlt") || helmet.includes("CowgirlAlt"))
+            return buildVersion >= gameToBuildVersionInt["15.5.0"];
+        if (helmet.includes("LimboAlt") || helmet.includes("LimboAristeas"))
+            return buildVersion >= gameToBuildVersionInt["15.0.0"];
+        if (helmet.includes("HarlequinAlt") || helmet.includes("MirageAlt"))
+            return buildVersion >= gameToBuildVersionInt["14.0.0"];
+        if (helmet.includes("PirateAlt")) return buildVersion >= gameToBuildVersionInt["13.0.0"];
+        if (helmet.includes("Zephyr")) return buildVersion >= gameToBuildVersionInt["12.1.2"];
+        if (helmet.includes("Oberon")) return buildVersion >= gameToBuildVersionInt["11.1.3"];
+        if (helmet.includes("Valkyr")) return buildVersion >= gameToBuildVersionInt["11.1.3"];
+        if (helmet.includes("V2")) return buildVersion >= gameToBuildVersionInt["9.0.0"];
+        if (helmet.includes("Vauban")) return buildVersion >= gameToBuildVersionInt["8.0.0"];
+        if (helmet.includes("Excalibur")) return buildVersion >= gameToBuildVersionInt["7.7.1"];
+        if (helmet.includes("Nyx")) return buildVersion >= gameToBuildVersionInt["7.7.1"];
+        if (helmet.includes("Frost")) return buildVersion >= gameToBuildVersionInt["7.7.1"];
+        if (helmet.includes("Saryn")) return buildVersion >= gameToBuildVersionInt["7.7.1"];
+        if (helmet.includes("Banshee")) return buildVersion >= gameToBuildVersionInt["7.7.1"];
+        return true;
+    });
+};
+
+const generateSeededAlert = async (alertIndex: number, buildVersion: number): Promise<IAlert> => {
+    const seed = new SRng(alertIndex * 2654435761).randomInt(0, 100_000);
+    const rng = new SRng(seed);
+    const regions = await getRegions(intToBuildVersion(buildVersion));
+    const eligibleNodes = getEligibleAlertNodes(regions, buildVersion);
+    const node = sequentiallyUniqueRandomElement(eligibleNodes, alertIndex, 10, 569354)!;
+    const nodeData = regions[node];
+
+    const isPreU14 = buildVersion < gameToBuildVersionInt["14.0.0"];
+    const isArch = isArchwingMission(nodeData);
+
+    const factions: TFaction[] = isArch ? ["FC_GRINEER", "FC_CORPUS"] : ["FC_GRINEER", "FC_CORPUS", "FC_INFESTATION"];
+    const faction: TFaction = rng.randomInt(0, 9) < 7 ? (nodeData.faction as TFaction) : rng.randomElement(factions)!;
+
+    const missionTypes: TMissionType[] = [
+        "MT_SURVIVAL",
+        "MT_DEFENSE",
+        "MT_RESCUE",
+        "MT_CAPTURE",
+        "MT_EXTERMINATION",
+        "MT_SABOTAGE",
+        "MT_MOBILE_DEFENSE",
+        "MT_INTEL"
+    ];
+    let missionType: TMissionType;
+    let levelOverride = nodeData.levelOverride;
+    let enemySpec = nodeData.enemySpec;
+    let extraEnemySpec = nodeData.extraEnemySpec;
+
+    if (isPreU14) {
+        missionType = nodeData.missionType;
+    } else {
+        missionType = rng.randomInt(0, 9) < 7 ? nodeData.missionType : rng.randomElement(missionTypes)!;
+    }
+
+    if (missionType !== nodeData.missionType) {
+        levelOverride = undefined;
+    }
+
+    if (isArch) {
+        missionType = rng.randomElement(
+            faction == "FC_GRINEER"
+                ? ["MT_EXTERMINATION", "MT_MOBILE_DEFENSE", "MT_TERRITORY", "MT_PURSUIT"]
+                : ["MT_EXTERMINATION", "MT_MOBILE_DEFENSE", "MT_SABOTAGE", "MT_RACE"]
+        )!;
+    }
+
+    if (missionType !== nodeData.missionType || faction !== nodeData.faction) {
+        let foundEnemySpec: string | undefined = undefined;
+        let foundExtraEnemySpec: string | undefined = undefined;
+
+        if (isArch) {
+            const targetTileset =
+                faction == "FC_GRINEER" ? "ArchwingGrineerSpaceTileset" : "ArchwingCorpusTrenchrunTileset";
+            foundEnemySpec = rng.randomElement(ExportTilesets[targetTileset].missions[missionType]!.enemySpecs!)!;
+        }
+
+        if (!foundEnemySpec) {
+            const nodes = Object.values(regions).filter(node => node.faction == faction && node.enemySpec);
+            const node = nodes.find(node => node.missionType == missionType) ?? nodes[0];
+
+            foundEnemySpec = node.enemySpec;
+            foundExtraEnemySpec = node.extraEnemySpec;
+        }
+
+        enemySpec = foundEnemySpec;
+        extraEnemySpec = foundExtraEnemySpec;
+    }
+
+    const difficulty = rng.randomInt(10, 99) / 100;
+    const minEnemyLevel = 10 + Math.round(difficulty * 20);
+    const maxEnemyLevel = minEnemyLevel + rng.randomInt(5, 10);
+
+    let rewardCredits = 2000 + Math.round(difficulty * 18000);
+    let rewardItems: string[] | undefined = undefined;
+    let rewardCountedItems: { ItemType: string; ItemCount: number }[] | undefined = undefined;
+    let isNightmare = false;
+
+    const filteredStdRes = [...alertStandardResources];
+    if (buildVersion >= gameToBuildVersionInt["14.0.0"]) {
+        filteredStdRes.push({ path: "/Lotus/Types/Items/MiscItems/ArgonCrystal", qty: 1 });
+    }
+    if (buildVersion >= gameToBuildVersionInt["10.8.0"]) {
+        filteredStdRes.push({ path: "/Lotus/Types/Items/MiscItems/OxiumAlloy", qty: 300 });
+    }
+    if (buildVersion >= gameToBuildVersionInt["15.5.0"]) {
+        filteredStdRes.push({ path: "/Lotus/Types/Items/MiscItems/Tellurium", qty: 1 });
+    }
+
+    const filteredSpecRes: { path: string; qty: number }[] = [];
+    if (buildVersion >= gameToBuildVersionInt["14.0.0"]) {
+        filteredSpecRes.push({ path: "/Lotus/Types/Game/KubrowPet/Eggs/KubrowEgg", qty: 1 });
+    }
+    if (buildVersion >= gameToBuildVersionInt["18.5.0"]) {
+        filteredSpecRes.push({ path: "/Lotus/Types/Game/CatbrowPet/CatbrowGeneticSignature", qty: 5 });
+    }
+    if (buildVersion >= gameToBuildVersionInt["14.0.0"]) {
+        filteredSpecRes.push({ path: "/Lotus/Types/Items/MiscItems/Eventium", qty: 5 });
+    }
+    if (buildVersion >= gameToBuildVersionInt["17.12.0"]) {
+        filteredSpecRes.push({ path: "/Lotus/Types/Items/MiscItems/Alertium", qty: 1 });
+    }
+    if (buildVersion >= gameToBuildVersionInt["18.13.3"]) {
+        filteredSpecRes.push({ path: "/Lotus/Types/Items/MiscItems/VoidTearDrop", qty: 20 });
+    }
+
+    const filteredOrkinBP = [...alertOrokinBP];
+    if (buildVersion >= gameToBuildVersionInt["13.0.0"]) {
+        filteredOrkinBP.push("/Lotus/Types/Recipes/Components/FormaBlueprint");
+    }
+
+    const categories: { name: string; weight: number }[] = [
+        { name: "CREDITS", weight: 60 },
+        { name: "STANDARD_RESOURCES", weight: 120 },
+        { name: "ENDO", weight: 40 },
+        { name: "ALT_HELMETS", weight: 80 },
+        { name: "WEAPONS", weight: 35 },
+        { name: "AURAS", weight: 18 },
+        { name: "OROKIN_BP", weight: 4 }
+    ];
+    if (buildVersion >= gameToBuildVersionInt["7.11.0"]) categories.push({ name: "VAUBAN_PARTS", weight: 7 });
+    if (buildVersion >= gameToBuildVersionInt["9.1.0"]) categories.push({ name: "NIGHTMARE_MODS", weight: 30 });
+    if (buildVersion >= gameToBuildVersionInt["14.0.0"]) categories.push({ name: "SPECIAL_RESOURCES", weight: 10 });
+
+    let totalWeight = 0;
+    for (const cat of categories) {
+        totalWeight += cat.weight;
+    }
+    let roll = rng.randomInt(0, totalWeight * 100) / 100;
+    let selectedCategory = "STANDARD_RESOURCES";
+    for (const cat of categories) {
+        if (roll < cat.weight) {
+            selectedCategory = cat.name;
+            break;
+        }
+        roll -= cat.weight;
+    }
+
+    switch (selectedCategory) {
+        case "CREDITS": {
+            rewardCredits = 5000 + Math.round(difficulty * 15000);
+            break;
+        }
+        case "STANDARD_RESOURCES": {
+            const res = rng.randomElement(filteredStdRes)!;
+            rewardCountedItems = [{ ItemType: res.path, ItemCount: res.qty }];
+            break;
+        }
+        case "ENDO": {
+            const isPreU19 = buildVersion < gameToBuildVersionInt["19.0.1"];
+            const endoRoll = rng.randomInt(0, 99);
+            if (isPreU19) {
+                let corePath = "/Lotus/Upgrades/Mods/FusionCores/CoreClassCommonThree";
+                if (endoRoll < 60) {
+                    corePath = "/Lotus/Upgrades/Mods/FusionCores/CoreClassCommonThree";
+                } else if (endoRoll < 90) {
+                    corePath = "/Lotus/Upgrades/Mods/FusionCores/CoreClassUncommonFive";
+                } else {
+                    corePath = "/Lotus/Upgrades/Mods/FusionCores/CoreClassRareFive";
+                }
+                rewardItems = [toStoreItem(corePath)];
+            } else {
+                let endoPath = "/Lotus/StoreItems/Upgrades/Mods/FusionBundles/AlertFusionBundleSmall";
+                if (endoRoll < 60) {
+                    endoPath = "/Lotus/StoreItems/Upgrades/Mods/FusionBundles/AlertFusionBundleSmall";
+                } else if (endoRoll < 90) {
+                    endoPath = "/Lotus/StoreItems/Upgrades/Mods/FusionBundles/AlertFusionBundleMedium";
+                } else {
+                    endoPath = "/Lotus/StoreItems/Upgrades/Mods/FusionBundles/AlertFusionBundleLarge";
+                }
+                rewardItems = [endoPath];
+            }
+            break;
+        }
+        case "SPECIAL_RESOURCES": {
+            const res = rng.randomElement(filteredSpecRes)!;
+            rewardCountedItems = [{ ItemType: res.path, ItemCount: res.qty }];
+            break;
+        }
+        case "AURAS": {
+            const isPreU9 = buildVersion < gameToBuildVersionInt["9.0.0"];
+            const aura = rng.randomElement(alertAuras)!;
+            if (isPreU9) {
+                const auraPath = aura
+                    .replace("/Lotus/Upgrades/Mods/Aura/", "/Lotus/Types/Cards/")
+                    .replace("AuraMod", "Buff");
+                rewardItems = [toStoreItem(auraPath)];
+            } else {
+                rewardItems = [toStoreItem(aura)];
+            }
+            break;
+        }
+        case "ALT_HELMETS": {
+            const filteredHelmets = getFilteredAlertHelmets(buildVersion);
+            const helmet = getVersionAppropriateHelmet(rng.randomElement(filteredHelmets)!, buildVersion);
+            rewardItems = [toStoreItem(helmet)];
+            break;
+        }
+        case "VAUBAN_PARTS": {
+            const part = rng.randomElement(alertVaubanParts)!;
+            rewardItems = [toStoreItem(part)];
+            break;
+        }
+        case "WEAPONS": {
+            const filteredWeapons = getFilteredAlertWeapons(buildVersion);
+            const weapon = rng.randomElement(filteredWeapons)!;
+            rewardItems = [toStoreItem(weapon)];
+            break;
+        }
+        case "NIGHTMARE_MODS": {
+            const nmMod = rng.randomElement(alertNightmareMods)!;
+            rewardItems = [toStoreItem(nmMod)];
+            isNightmare = true;
+            break;
+        }
+        case "OROKIN_BP": {
+            const specialBP = rng.randomElement(filteredOrkinBP)!;
+            rewardItems = [toStoreItem(specialBP)];
+            break;
+        }
+    }
+
+    let durationMs = ALERT_BASE_DURATION_MS + rng.randomInt(0, 40) * 60 * 1000;
+    let multiplier = 1;
+    if (rewardItems && rewardItems.length > 0) {
+        multiplier = alertDurationMultipliers.get(fromStoreItem(rewardItems[0])) ?? 1;
+    } else if (rewardCountedItems && rewardCountedItems.length > 0) {
+        multiplier = alertDurationMultipliers.get(rewardCountedItems[0].ItemType) ?? 1;
+    }
+    durationMs = Math.round(durationMs * multiplier);
+
+    const activation = EPOCH + alertIndex * ALERT_INTERVAL_MS;
+    const expiry = activation + durationMs;
+
+    const oid =
+        ((activation / 1000) & 0xffffffff).toString(16).padStart(8, "0") +
+        "a1e4" +
+        seed.toString(16).padStart(5, "0").substring(0, 5) +
+        (alertIndex & 0xffffff).toString(16).padStart(7, "0");
+
+    const descTexts = alertDescTexts[missionType];
+    const descText = isPreU14 && descTexts ? rng.randomElement(descTexts) : undefined;
+
+    const alert: IAlert = {
+        _id: toOid2(oid, buildVersion),
+        Activation: toMongoDate2(activation, buildVersion),
+        Expiry: toMongoDate2(expiry, buildVersion),
+        MissionInfo: {
+            location: node,
+            missionType: missionType,
+            faction: faction,
+            difficulty: difficulty,
+            missionReward: {
+                credits: rewardCredits,
+                items: rewardItems,
+                countedItems: rewardCountedItems
+            },
+            levelOverride: levelOverride,
+            enemySpec: enemySpec,
+            extraEnemySpec: extraEnemySpec,
+            minEnemyLevel: minEnemyLevel,
+            maxEnemyLevel: maxEnemyLevel,
+            descText: descText,
+            nightmare: isNightmare || undefined,
+            archwingRequired: isArchwingMission(nodeData) || undefined
+        }
+    };
+
+    return alert;
+};
+
+export const getAlertByOid = async (oid: string, buildVersion: number): Promise<IAlert | undefined> => {
+    if (oid.slice(8, 12) != "a1e4") {
+        return undefined;
+    }
+    const alertIndex = parseInt(oid.slice(-7), 16);
+    return generateSeededAlert(alertIndex, buildVersion);
+};
+
+export const populateAlerts = async (worldState: IWorldState): Promise<void> => {
+    const buildLabel = worldState.BuildLabel;
+    const buildVersion = buildVersionToInt(buildLabel);
+    if (
+        config.worldState?.classicAlerts ??
+        (buildVersion >= gameToBuildVersionInt["5.1.0"] && buildVersion < gameToBuildVersionInt["24.3.0"]) // alerts were retired with U24.3.0
+    ) {
+        const timeMs = worldState.Time * 1000;
+        const currentAlertIndex = Math.floor((timeMs - EPOCH) / ALERT_INTERVAL_MS);
+        const activeAlerts: IAlert[] = [];
+        for (let idx = currentAlertIndex - 8; idx <= currentAlertIndex + 1; idx++) {
+            const alert = await generateSeededAlert(idx, buildVersion);
+            const activationTime = fromMongoDate(alert.Activation).getTime();
+            const expiryTime = fromMongoDate(alert.Expiry).getTime();
+
+            if (timeMs >= activationTime && timeMs < expiryTime) {
+                if (alert.MissionInfo.missionReward && alert.MissionInfo.missionReward.items) {
+                    const itemMapping: Record<string, string> = {
+                        "/Lotus/StoreItems/Types/Recipes/Components/FormaBlueprint":
+                            "/Lotus/Types/Recipes/Components/FormaBlueprintStoreItem",
+
+                        "/Lotus/StoreItems/Types/Recipes/Components/OrokinReactorBlueprint":
+                            buildVersion < gameToBuildVersionInt["13.0.0"]
+                                ? "/Lotus/Types/StoreItems/Recipes/OrokinReactorBlueprintStoreItem"
+                                : "/Lotus/Types/Recipes/Components/OrokinReactorBlueprintStoreItem",
+
+                        "/Lotus/StoreItems/Types/Recipes/Components/OrokinCatalystBlueprint":
+                            "/Lotus/Types/StoreItems/Recipes/OrokinCatalystBlueprintStoreItem"
+                    };
+
+                    alert.MissionInfo.missionReward.items = alert.MissionInfo.missionReward.items.map(item => {
+                        if (!(buildVersion < gameToBuildVersionInt["14.0.0"])) return item;
+                        if (item in itemMapping) {
+                            return itemMapping[item];
+                        }
+                        const filename = item.split("/").pop()!;
+                        if (item.startsWith("/Lotus/StoreItems/Recipes/WarframeRecipes/")) {
+                            return `/Lotus/Types/Recipes/WarframeRecipes/${filename}StoreItem`;
+                        }
+                        if (item.endsWith("Blueprint")) {
+                            return `/Lotus/Types/StoreItems/Recipes/${filename}StoreItem`;
+                        }
+                        if (item.endsWith("Buff")) {
+                            return `/Lotus/Types/StoreItems/Cards/${filename}StoreItem`;
+                        }
+                        return item;
+                    });
+                }
+
+                activeAlerts.push(alert);
+            }
+        }
+
+        worldState.Alerts.push(...activeAlerts);
+    }
+};
+
+export const updateWorldStateCollections = async (): Promise<void> => {
+    await Promise.all([updateFissures(), updateDailyDeal()]);
+};
+
+const pushConclaveDaily = (
+    activeChallenges: IPVPChallengeInstance[],
+    PVPMode: string,
+    pool: {
+        key: string;
+        ScriptParamValue: number;
+        PVPModeAllowed: string[];
+        SyndicateXP: number;
+        DuringSingleMatch?: boolean;
+    }[],
+    day: number,
+    id: number,
+    buildVersion: number
+): void => {
+    if (buildVersion < gameToBuildVersionInt["18.0.2"]) {
+        PVPMode = PVPMode.replace("PVPMODE_", "");
+    }
+    const conclaveDayStart = EPOCH + day * unixTimesInMs.day + 5 * unixTimesInMs.hour + 30 * unixTimesInMs.minute;
+    const conclaveDayEnd = conclaveDayStart + unixTimesInMs.day;
+    const challengeId = day * 8 + id;
+    const rng = new SRng(new SRng(challengeId).randomInt(0, 100_000));
+    let challenge: {
+        key: string;
+        ScriptParamValue: number;
+        PVPModeAllowed?: string[];
+        SyndicateXP?: number;
+        DuringSingleMatch?: boolean;
+    };
+    do {
+        challenge = rng.randomElement(pool)!;
+    } while (
+        activeChallenges.some(x => x.challengeTypeRefID == challenge.key) &&
+        activeChallenges.some(x => x.PVPMode == PVPMode)
+    );
+    activeChallenges.push({
+        _id: toOid2("689ec5d985b55902" + challengeId.toString().padStart(8, "0"), buildVersion),
+        challengeTypeRefID: challenge.key,
+        startDate: toMongoDate2(conclaveDayStart, buildVersion),
+        endDate: toMongoDate2(conclaveDayEnd, buildVersion),
+        params: [{ n: "ScriptParamValue", v: challenge.ScriptParamValue }],
+        isGenerated: true,
+        PVPMode,
+        subChallenges: [],
+        Category: "PVPChallengeTypeCategory_DAILY"
+    });
+};
+
+const pushConclaveDailys = (activeChallenges: IPVPChallengeInstance[], day: number, buildVersion: number): void => {
+    const modes = ["PVPMODE_CAPTURETHEFLAG", "PVPMODE_DEATHMATCH", "PVPMODE_TEAMDEATHMATCH"];
+    // closest known version to Update: Lunaro
+    if (buildVersion > gameToBuildVersionInt["18.13.3"]) {
+        modes.push("PVPMODE_SPEEDBALL");
+    }
+    const challengesMap: Record<
+        string,
+        {
+            key: string;
+            ScriptParamValue: number;
+            PVPModeAllowed: string[];
+            SyndicateXP: number;
+            DuringSingleMatch?: boolean;
+        }[]
+    > = {};
+
+    for (const mode of modes) {
+        challengesMap[mode] = Object.entries(pvpChallenges)
+            .filter(([_, challenge]) => challenge.PVPModeAllowed.includes(mode))
+            .map(([key, challenge]) => ({ key, ...challenge }));
+    }
+
+    modes.forEach((mode, index) => {
+        pushConclaveDaily(activeChallenges, mode, challengesMap[mode], day, index * 2, buildVersion);
+        pushConclaveDaily(activeChallenges, mode, challengesMap[mode], day, index * 2 + 1, buildVersion);
+    });
+};
+
+// Conclave daily/weekly challenge instances exactly as published in worldState.PVPChallengeInstances.
+const pushPvpChallengeInstances = (
+    activeChallenges: IPVPChallengeInstance[],
+    timeMs: number,
+    day: number,
+    week: number,
+    weekStart: number,
+    buildVersion: number
+): void => {
+    if (buildVersion >= gameToBuildVersionInt["17.7.1"]) {
+        if (buildVersion >= gameToBuildVersionInt["18.0.2"]) {
+            const conclaveWeekStart = weekStart + 40 * unixTimesInMs.minute - 2 * unixTimesInMs.day;
+            const conclaveWeekEnd = conclaveWeekStart + unixTimesInMs.week;
+
+            pushConclaveWeekly(activeChallenges, week, buildVersion);
+
+            if (isBeforeNextExpectedWorldStateRefresh(timeMs, conclaveWeekEnd)) {
+                pushConclaveWeekly(activeChallenges, week + 1, buildVersion);
+            }
+        }
+
+        {
+            const conclaveDayStart =
+                EPOCH + day * unixTimesInMs.day + 5 * unixTimesInMs.hour + 30 * unixTimesInMs.minute;
+            const conclaveDayEnd = conclaveDayStart + unixTimesInMs.day;
+            pushConclaveDailys(activeChallenges, day, buildVersion);
+
+            if (isBeforeNextExpectedWorldStateRefresh(timeMs, conclaveDayEnd)) {
+                pushConclaveDailys(activeChallenges, day + 1, buildVersion);
+            }
+        }
+    }
+};
+
+// The same PVPChallengeInstances the world state currently publishes for this build, without building the whole world state.
+export const getCurrentPvpChallengeInstances = (buildLabel: string = BL_LATEST): IPVPChallengeInstance[] => {
+    const { timeMs, day, week, weekStart } = getWorldStateTime();
+    const activeChallenges: IPVPChallengeInstance[] = [];
+    pushPvpChallengeInstances(activeChallenges, timeMs, day, week, weekStart, buildVersionToInt(buildLabel));
+    return activeChallenges;
+};
+
+const pushConclaveWeekly = (activeChallenges: IPVPChallengeInstance[], week: number, buildVersion: number): void => {
+    const weekStart = EPOCH + week * unixTimesInMs.week;
+    const conclaveWeekStart = weekStart + 40 * unixTimesInMs.minute - 2 * unixTimesInMs.day;
+    const conclaveWeekEnd = conclaveWeekStart + unixTimesInMs.week;
+    const conclaveIdStart = ((conclaveWeekStart / 1000) & 0xffffffff).toString(16).padStart(8, "0").padEnd(23, "0");
+    activeChallenges.push(
+        {
+            _id: toOid2(conclaveIdStart + "1", buildVersion),
+            challengeTypeRefID: "/Lotus/PVPChallengeTypes/PVPTimedChallengeGameModeWins",
+            startDate: toMongoDate2(conclaveWeekStart, buildVersion),
+            endDate: toMongoDate2(conclaveWeekEnd, buildVersion),
+            params: [{ n: "ScriptParamValue", v: 6 }],
+            isGenerated: true,
+            PVPMode: "PVPMODE_ALL",
+            subChallenges: [],
+            Category: "PVPChallengeTypeCategory_WEEKLY"
+        },
+        {
+            _id: toOid2(conclaveIdStart + "2", buildVersion),
+            challengeTypeRefID: "/Lotus/PVPChallengeTypes/PVPTimedChallengeGameModeComplete",
+            startDate: toMongoDate2(conclaveWeekStart, buildVersion),
+            endDate: toMongoDate2(conclaveWeekEnd, buildVersion),
+            params: [{ n: "ScriptParamValue", v: 20 }],
+            isGenerated: true,
+            PVPMode: "PVPMODE_ALL",
+            subChallenges: [],
+            Category: "PVPChallengeTypeCategory_WEEKLY"
+        },
+        {
+            _id: toOid2(conclaveIdStart + "3", buildVersion),
+            challengeTypeRefID: "/Lotus/PVPChallengeTypes/PVPTimedChallengeOtherChallengeCompleteANY",
+            startDate: toMongoDate2(conclaveWeekStart, buildVersion),
+            endDate: toMongoDate2(conclaveWeekEnd, buildVersion),
+            params: [{ n: "ScriptParamValue", v: 10 }],
+            isGenerated: true,
+            PVPMode: "PVPMODE_ALL",
+            subChallenges: [],
+            Category: "PVPChallengeTypeCategory_WEEKLY"
+        },
+        {
+            _id: toOid2(conclaveIdStart + "4", buildVersion),
+            challengeTypeRefID: "/Lotus/PVPChallengeTypes/PVPTimedChallengeWeeklyStandardSet",
+            startDate: toMongoDate2(conclaveWeekStart, buildVersion),
+            endDate: toMongoDate2(conclaveWeekEnd, buildVersion),
+            params: [{ n: "ScriptParamValue", v: 0 }],
+            isGenerated: true,
+            PVPMode: "PVPMODE_NONE",
+            subChallenges: [
+                toOid2(conclaveIdStart + "1", buildVersion),
+                toOid2(conclaveIdStart + "2", buildVersion),
+                toOid2(conclaveIdStart + "3", buildVersion)
+            ],
+            Category: "PVPChallengeTypeCategory_WEEKLY_ROOT"
+        }
+    );
+};
+
+const pushGoalAlerts = (ws: IWorldState, tag: string, buildVersion: number): void => {
+    const genMeta = alertGeneratorConfig[tag];
+    const neededAlerts = genMeta.alertLength / genMeta.alertInterval;
+    const currentAlertIndex = Math.floor((ws.Time * 1000 - EPOCH) / genMeta.alertInterval);
+    for (let i = 0; i <= neededAlerts; i++) {
+        ws.Alerts.push(generateGoalAlert(tag, currentAlertIndex - i, ws.Alerts, buildVersion));
+    }
+};
+
+const generateGoalAlert = (tag: string, alertIdx: number, wsAlerts: IAlert[], buildVersion: number): IAlert => {
+    const genMeta = alertGeneratorConfig[tag];
+    const defenseWavesPerRotation = buildVersion < gameToBuildVersionInt["38.5.0"] ? 5 : 3;
+    const activation = EPOCH + alertIdx * genMeta.alertInterval;
+    const expiry = activation + genMeta.alertLength;
+    const tagHash = catBreadHash(tag);
+    const rng = new SRng(alertIdx ^ tagHash);
+    const allowedNodes = Object.fromEntries(
+        Object.entries(ExportRegions).filter(
+            ([nodeTag, node]) =>
+                genMeta.allowedSystemIndexes.includes(node.systemIndex) &&
+                node.nodeType != 3 && // not hub
+                node.nodeType != 7 && // not junction
+                !["MT_ASSASSINATION", "MT_LANDSCAPE", "MT_RAILJACK", "MT_PVPVE", "MT_PVP", "MT_ARENA"].includes(
+                    node.missionType
+                ) &&
+                node.name.indexOf("1999NodeI") == -1 && // not stage defense
+                node.name.indexOf("1999NodeJ") == -1 && // not lich bounty
+                node.name.indexOf("SolarMapEntratiNode") == -1 && // not albrecht lab mission
+                !isArchwingMission(node) &&
+                !wsAlerts.map(a => a.MissionInfo.location).includes(nodeTag)
+        )
+    );
+    let nodeTag: string;
+    let node: IRegion;
+    do {
+        [nodeTag, node] = rng.randomElement(Object.entries(allowedNodes))!;
+        if (!node.tileset) logger.debug(`node ${nodeTag} without tileset - reroll it`);
+        else if (!node.faction) logger.debug(`node ${nodeTag} without faction - reroll it`);
+    } while (!node.tileset || !node.faction);
+    let missionType: string;
+    let mission: ITilesetMission;
+    do {
+        [missionType, mission] = rng.randomElement(Object.entries(ExportTilesets[node.tileset].missions))!;
+    } while (
+        ["MT_ASSASSINATION", "MT_LANDSCAPE", "MT_RAILJACK", "MT_PVPVE", "MT_PVP", "MT_ARENA"].includes(missionType)
+    );
+    const oid =
+        ((activation / 1000) & 0xffffffff).toString(16).padStart(8, "0") +
+        tagHash.toString(16).padEnd(8, "0") +
+        (alertIdx & 0xffffffff).toString(16).padStart(8, "0");
+    const alert: IAlert = {
+        _id: { $oid: oid },
+        Activation: { $date: { $numberLong: activation.toString() } },
+        Expiry: { $date: { $numberLong: expiry.toString() } },
+        MissionInfo: {
+            location: nodeTag,
+            missionType: missionType as TMissionType,
+            faction: node.faction,
+            difficulty: 1,
+            seed: alertIdx,
+            levelOverride: mission.procLevel,
+            ...genMeta.baseMissionInfo
+        },
+        ...genMeta.baseAlert
+    };
+    if (mission.enemySpecs) alert.MissionInfo.enemySpec = rng.randomElement(mission.enemySpecs);
+    if (mission.extraEnemySpecs) alert.MissionInfo.extraEnemySpec = rng.randomElement(mission.extraEnemySpecs);
+    if (mission.vipAgent) alert.MissionInfo.vipAgent = mission.vipAgent;
+    if (mission.advancedSpawners) alert.MissionInfo.customAdvancedSpawners = [...mission.advancedSpawners];
+    if (["MT_INTEL", "MT_TERRITORY", "MT_EXCAVATE"].includes(missionType)) {
+        alert.MissionInfo.maxWaveNum = 2;
+    } else if (missionType == "MT_SURVIVAL") {
+        alert.MissionInfo.maxWaveNum = 5 * genMeta.baseMissionInfo.maxRotations!;
+    } else if (missionType == "MT_DEFENSE") {
+        alert.MissionInfo.maxWaveNum = defenseWavesPerRotation * genMeta.baseMissionInfo.maxRotations!;
+    }
+    delete alert.MissionInfo.maxRotations;
+    return alert;
+};
+
+export const populateFeaturedGuilds = async (worldState: IWorldState): Promise<void> => {
+    const guilds = await Guild.find({ Featured: true }, "Name Tier AllianceId Emblem");
+    for (const guild of guilds) {
+        worldState.FeaturedGuilds.push({
+            _id: toOid(guild._id),
+            Name: guild.Name,
+            Tier: guild.Tier,
+            AllianceId: guild.AllianceId ? toOid(guild.AllianceId) : undefined,
+            Emblem: guild.Emblem
+        });
+    }
+};
+
+const pushFlashSales = (
+    ws: IWorldState,
+    storeItems: (IFlashSaleData & { marketItem?: string; minBuildLabel?: string })[],
+    startDate: number | Date,
+    endDate: number | Date,
+    category: string,
+    buildVersion: number
+): void => {
+    const includeLegacyMarketFields = buildVersion < gameToBuildVersionInt["22.13.4"];
+    const filteredItems = storeItems.filter(
+        item =>
+            (!item.minBuildVersionInt || buildVersion >= item.minBuildVersionInt) &&
+            (!item.minBuildLabel || buildVersion >= buildVersionToInt(item.minBuildLabel))
+    );
+
+    ws.FlashSales.push(
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        ...filteredItems.map(({ minBuildVersionInt, minBuildLabel, marketItem, ...item }) => ({
+            ...item,
+            StartDate: toMongoDate2(startDate, buildVersion),
+            EndDate: toMongoDate2(endDate, buildVersion),
+            ProductExpiryOverride: toMongoDate2(endDate, buildVersion),
+            // Defaulting all of this is probably not needed, but might be needed for Market 2.0 (pre-U25):
+            ShowInMarket: item.ShowInMarket ?? true,
+            HideFromMarket: item.HideFromMarket ?? false,
+            SupporterPack: item.SupporterPack ?? false,
+            Discount: item.Discount ?? 0,
+            BogoBuy: item.BogoBuy ?? 0,
+            BogoGet: item.BogoGet ?? 0,
+            RegularOverride: item.RegularOverride ?? 0,
+            PremiumOverride: item.PremiumOverride ?? 0,
+            ...(includeLegacyMarketFields
+                ? {
+                      Featured: item.Featured ?? category != "POPULAR",
+                      Popular: item.Popular ?? category == "POPULAR",
+                      BannerIndex: item.BannerIndex ?? 10
+                  }
+                : {})
+        }))
+    );
+
+    const seasonalCategory = ws.InGameMarket.LandingPage.Categories.find(c => c.CategoryName == category);
+    if (!seasonalCategory) {
+        throw new Error(`No market category ${category} in static worldState data`);
+    }
+    const categoryItems = seasonalCategory.Items!;
+    for (const item of filteredItems) {
+        const marketItem = item.marketItem ?? item.TypeName;
+        if (!categoryItems.includes(marketItem)) {
+            categoryItems.push(marketItem);
+        }
+    }
+};

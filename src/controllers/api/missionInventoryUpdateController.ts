@@ -1,0 +1,200 @@
+import type { RequestHandler } from "express";
+import { getJSONfromString } from "../../helpers/stringHelpers.ts";
+import { getAccountForRequest, getBuildLabel } from "../../services/loginService.ts";
+import type { IMissionInventoryUpdateRequest } from "../../types/requestTypes.ts";
+import {
+    addMissionInventoryUpdates,
+    addMissionRewards,
+    handleConservation
+} from "../../services/missionInventoryUpdateService.ts";
+import {
+    combineInventoryChanges,
+    dispatchPendingPremiumCredits,
+    getInventory
+} from "../../services/inventoryService.ts";
+import { getInventoryResponse } from "./inventoryController.ts";
+import { logger } from "../../utils/logger.ts";
+import type {
+    IMissionInventoryUpdateResponse,
+    IMissionInventoryUpdateResponseBackToDryDock,
+    IMissionInventoryUpdateResponseRailjackInterstitial
+} from "../../types/missionTypes.ts";
+import { sendWsBroadcastTo } from "../../services/wsService.ts";
+import { generateRewardSeed } from "../../services/rngService.ts";
+import { version_compare } from "../../helpers/inventoryHelpers.ts";
+import gameToBuildVersion from "../../constants/gameToBuildVersion.ts";
+import { filterInplace } from "../../helpers/general.ts";
+
+/*
+**** INPUT ****
+- [ ]  crossPlaySetting
+- [ ]  rewardsMultiplier
+- [ ]  ActiveBoosters
+- [x]  LongGuns
+- [x]  Pistols
+- [x]  Suits
+- [x]  Melee
+- [x]  RawUpgrades
+- [x]  MiscItems
+- [x]  RegularCredits
+- [ ]  RandomUpgradesIdentified
+- [ ]  MissionFailed
+- [ ]  MissionStatus
+- [ ]  CurrentLoadOutIds
+- [ ]  AliveTime
+- [ ]  MissionTime
+- [x]  Missions
+- [ ]  CompletedAlerts
+- [ ]  LastRegionPlayed
+- [ ]  GameModeId
+- [ ]  hosts
+- [x]  ChallengeProgress
+- [ ]  SeasonChallengeHistory
+- [ ]  PS (anticheat data)
+- [ ]  ActiveDojoColorResearch
+- [x]  RewardInfo
+- [ ]  ReceivedCeremonyMsg
+- [ ]  LastCeremonyResetDate
+- [ ]  MissionPTS (Used to validate the mission/alive time above.)
+- [ ]  RepHash
+- [ ]  EndOfMatchUpload
+- [ ]  ObjectiveReached
+- [ ]  FpsAvg
+- [ ]  FpsMin
+- [ ]  FpsMax
+- [ ]  FpsSamples
+*/
+//move credit calc in here, return MissionRewards: [] if no reward info
+export const missionInventoryUpdateController: RequestHandler = async (req, res): Promise<void> => {
+    const account = await getAccountForRequest(req);
+    const buildLabel = getBuildLabel(req, account);
+    const missionReport = getJSONfromString<IMissionInventoryUpdateRequest>((req.body as string).toString());
+    logger.debug("mission report:", missionReport);
+
+    const inventory = await getInventory(account._id, undefined);
+    const firstCompletion = missionReport.SortieId
+        ? inventory.CompletedSorties.indexOf(missionReport.SortieId) == -1
+        : false;
+    const inventoryUpdates = await addMissionInventoryUpdates(account, buildLabel, inventory, missionReport);
+
+    if (
+        (missionReport.MissionStatus ? missionReport.MissionStatus !== "GS_SUCCESS" : missionReport.MissionFailed) &&
+        !(
+            missionReport.RewardInfo?.jobId ||
+            missionReport.RewardInfo?.challengeMissionId ||
+            missionReport.RewardInfo?.T
+        )
+    ) {
+        logger.debug(`aborted or failed mission, just syncing inventory`);
+        if (missionReport.EndOfMatchUpload || missionReport.RJ) {
+            logger.debug(`refreshing reward seed`);
+            inventory.RewardSeed = generateRewardSeed();
+        }
+        await inventory.save();
+        const inventoryResponse = await getInventoryResponse(req, inventory, true, buildLabel);
+        res.json({
+            InventoryJson: JSON.stringify(inventoryResponse),
+            MissionRewards: []
+        });
+        sendWsBroadcastTo(account._id.toString(), { update_inventory: true });
+        return;
+    }
+
+    const {
+        MissionRewards,
+        inventoryChanges,
+        credits,
+        AffiliationMods,
+        SyndicateXPItemReward,
+        ConquestCompletedMissionsCount,
+        NemesisTaxInfo,
+        RecoveredItemInfo
+    } = await addMissionRewards(account, buildLabel, inventory, missionReport, firstCompletion);
+    await handleConservation(inventory, buildLabel, missionReport, AffiliationMods); // Conservation reports have GS_SUCCESS
+
+    if (inventory.pendingPremiumCredits) {
+        await dispatchPendingPremiumCredits(inventory);
+        //await inventory.save();
+    }
+
+    if (missionReport.EndOfMatchUpload || missionReport.RJ) {
+        logger.debug(`refreshing reward seed`);
+        inventory.RewardSeed = generateRewardSeed();
+    }
+    await inventory.save();
+
+    if (version_compare(buildLabel, gameToBuildVersion["18.18.0"]) < 0) {
+        // Client might crash if they see Endo, but their kids are gonna love it.
+        filterInplace(MissionRewards, x => !x.StoreItem.startsWith("/Lotus/StoreItems/Upgrades/Mods/FusionBundles/"));
+    }
+
+    //TODO: figure out when to send inventory. it is needed for many cases.
+    if (inventoryChanges) {
+        combineInventoryChanges(inventoryUpdates.InventoryChanges, inventoryChanges);
+    }
+    const deltas: IMissionInventoryUpdateResponseRailjackInterstitial = {
+        MissionRewards,
+        ...credits,
+        ...inventoryUpdates,
+        //FusionPoints: inventoryChanges?.FusionPoints, // This in combination with InventoryJson or InventoryChanges seems to just double the number of endo shown, so unsure when this is needed.
+        SyndicateXPItemReward,
+        AffiliationMods,
+        ConquestCompletedMissionsCount,
+        NemesisTaxInfo,
+        RecoveredItemInfo
+    };
+    if (
+        missionReport.BMI ||
+        missionReport.TNT ||
+        missionReport.SSC ||
+        missionReport.RJ ||
+        missionReport.SS ||
+        missionReport.CMI ||
+        missionReport.EJC
+    ) {
+        logger.debug(`interstitial request, sending only deltas`, deltas);
+        res.json(deltas);
+    } else if (missionReport.RewardInfo) {
+        logger.debug(`classic mission completion, sending everything`);
+        const response: IMissionInventoryUpdateResponse = deltas;
+        // InventoryJson is not recognised by early versions, and may lead them to buffer overrun if provided.
+        if (version_compare(buildLabel, gameToBuildVersion["8.0.0"]) > 0) {
+            response.InventoryJson = JSON.stringify(
+                await getInventoryResponse(req, inventory, "xpBasedLevelCapDisabled" in req.query, buildLabel)
+            );
+        }
+        if (missionReport.RewardInfo.sortieTag == "Final" && firstCompletion) {
+            response.CompletedSortie = true;
+        }
+        res.json(response);
+    } else {
+        logger.debug(`no reward info, just syncing inventory`);
+        // InventoryJson is not recognised by early versions, and may lead them to buffer overrun if provided.
+        if (version_compare(buildLabel, gameToBuildVersion["8.0.0"]) > 0) {
+            const inventoryResponse = await getInventoryResponse(
+                req,
+                inventory,
+                "xpBasedLevelCapDisabled" in req.query,
+                buildLabel
+            );
+            res.json({
+                InventoryJson: JSON.stringify(inventoryResponse)
+            } satisfies IMissionInventoryUpdateResponseBackToDryDock);
+        } else {
+            res.json({});
+        }
+    }
+
+    sendWsBroadcastTo(account._id.toString(), { update_inventory: true });
+};
+
+/*
+**** OUTPUT ****
+- [x]  InventoryJson
+- [x]  MissionRewards
+- [x]  TotalCredits
+- [x]  CreditsBonus
+- [x]  MissionCredits
+- [x]  InventoryChanges
+- [x]  FusionPoints
+*/

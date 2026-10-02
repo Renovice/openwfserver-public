@@ -1,0 +1,39 @@
+import type { RequestHandler } from "express";
+import {
+    canClaimLoginRewardToday,
+    claimLoginReward,
+    getRandomLoginRewards,
+    setAccountGotLoginRewardToday,
+    type ILoginReward
+} from "../../services/loginRewardService.ts";
+import { getJSONfromString } from "../../helpers/stringHelpers.ts";
+import { getAccountForRequest, getBuildLabel } from "../../services/loginService.ts";
+import { getInventory } from "../../services/inventoryService.ts";
+import { sendWsBroadcastTo } from "../../services/wsService.ts";
+import { logger } from "../../utils/logger.ts";
+
+export const giveLoginRewardController: RequestHandler = async (req, res) => {
+    const account = await getAccountForRequest(req);
+    const buildLabel = getBuildLabel(req, account);
+    if (!canClaimLoginRewardToday(account)) {
+        logger.debug(`login reward was already pre-emptively claimed server-side, so ignoring manual claim`);
+        res.json({});
+    } else {
+        const body = getJSONfromString<IGiveLoginRewardRequest>(String(req.body));
+        const inventory = await getInventory(account._id, undefined);
+
+        const randomRewards = await getRandomLoginRewards(account, inventory, buildLabel);
+        const chosenReward = randomRewards.find(x => x.StoreItemType == body.reward.StoreItemType)!;
+        const inventoryChanges = await claimLoginReward(account, inventory, chosenReward);
+
+        setAccountGotLoginRewardToday(account, inventory);
+        await Promise.all([inventory.save(), account.save()]);
+
+        sendWsBroadcastTo(account._id.toString(), { update_inventory: true });
+        res.json(inventoryChanges);
+    }
+};
+
+interface IGiveLoginRewardRequest {
+    reward: ILoginReward;
+}

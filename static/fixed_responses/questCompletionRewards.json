@@ -1,0 +1,29 @@
+{
+  "/Lotus/Types/Keys/InfestedMicroplanetQuest/InfestedMicroplanetQuestKeyChain": [{ "ItemType": "/Lotus/Types/Recipes/WarframeRecipes/BrokenFrameBlueprint", "ItemCount": 1 }],
+  "/Lotus/Types/Keys/OrokinMoonQuest/OrokinMoonQuestKeyChain": [
+    {
+      "ItemType": "/Lotus/Types/Keys/RailJackBuildQuest/RailjackBuildQuestEmailItem",
+      "ItemCount": 1
+    }
+  ],
+  "/Lotus/Types/Keys/EntratiLab/EntratiQuestKeyChain": [
+    {
+      "ItemType": "/Lotus/Types/Keys/1999PrologueQuest/1999PrologueQuestKeyChain",
+      "ItemCount": 1
+    },
+    {
+      "ItemType": "/Lotus/Types/Items/EmailItems/TennokaiEmailItem",
+      "ItemCount": 1
+    }
+  ],
+  "/Lotus/Types/Keys/PriestFrameQuest/PriestQuestKeyChain": [
+    {
+      "ItemType": "/Lotus/Types/Recipes/WarframeRecipes/PriestBlueprint",
+      "ItemCount": 1
+    },
+    {
+      "ItemType": "/Lotus/Types/Keys/ApostasyQuest/ApostasyKeyChain",
+      "ItemCount": 1
+    }
+  ]
+}

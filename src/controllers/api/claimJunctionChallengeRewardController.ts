@@ -1,0 +1,39 @@
+import { getJSONfromString } from "../../helpers/stringHelpers.ts";
+import { combineInventoryChanges, getInventory } from "../../services/inventoryService.ts";
+import { getAccountIdForRequest } from "../../services/loginService.ts";
+import { handleStoreItemAcquisition } from "../../services/purchaseService.ts";
+import type { RequestHandler } from "express";
+import { ExportChallenges } from "warframe-public-export-plus";
+
+export const claimJunctionChallengeRewardController: RequestHandler = async (req, res) => {
+    const accountId = await getAccountIdForRequest(req);
+    const inventory = await getInventory(accountId, undefined);
+    const data = getJSONfromString<IClaimJunctionChallengeRewardRequest>(String(req.body));
+    const challengeProgress = inventory.ChallengeProgress.find(x => x.Name == data.Challenge);
+    if (!challengeProgress) {
+        throw new Error(`attempt to claim challenge with no progress: ${String(req.body)}`);
+    }
+    if (challengeProgress.ReceivedJunctionReward) {
+        throw new Error(`attempt to double-claim junction reward`);
+    }
+    challengeProgress.ReceivedJunctionReward = true;
+    inventory.ClaimedJunctionChallengeRewards ??= [];
+    inventory.ClaimedJunctionChallengeRewards.push(data.Challenge);
+    const challengeMeta = Object.entries(ExportChallenges).find(arr => arr[0].endsWith("/" + data.Challenge))![1];
+    const inventoryChanges = {};
+    for (const reward of challengeMeta.countedRewards!) {
+        combineInventoryChanges(
+            inventoryChanges,
+            (await handleStoreItemAcquisition(reward.StoreItem, inventory, reward.ItemCount, undefined, true))
+                .InventoryChanges
+        );
+    }
+    await inventory.save();
+    res.json({
+        inventoryChanges: inventoryChanges // Yeah, it's "inventoryChanges" in the response here.
+    });
+};
+
+interface IClaimJunctionChallengeRewardRequest {
+    Challenge: string;
+}

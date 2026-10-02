@@ -1,0 +1,24 @@
+import { getJSONfromString } from "../../helpers/stringHelpers.ts";
+import { getInventory } from "../../services/inventoryService.ts";
+import { getAccountIdForRequest } from "../../services/loginService.ts";
+import type { RequestHandler } from "express";
+
+export const wishlistController: RequestHandler = async (req, res) => {
+    const accountId = await getAccountIdForRequest(req);
+    const inventory = await getInventory(accountId, "Wishlist");
+    const body = getJSONfromString<IWishlistRequest>(String(req.body));
+    for (const item of body.WishlistItems) {
+        const i = inventory.Wishlist.findIndex(x => x == item);
+        if (i == -1) {
+            inventory.Wishlist.push(item);
+        } else {
+            inventory.Wishlist.splice(i, 1);
+        }
+    }
+    await inventory.save();
+    res.end();
+};
+
+interface IWishlistRequest {
+    WishlistItems: string[];
+}

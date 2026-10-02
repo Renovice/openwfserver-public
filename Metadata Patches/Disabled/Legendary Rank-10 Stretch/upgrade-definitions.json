@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "upgrades": {
+    "/Lotus/Upgrades/Mods/Warframe/AvatarAbilityRangeMod": {
+      "rarity": "LEGENDARY",
+      "fusionLimit": 10
+    }
+  }
+}

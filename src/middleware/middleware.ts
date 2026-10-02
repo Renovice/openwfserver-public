@@ -1,0 +1,20 @@
+import { logger } from "../utils/logger.ts";
+import type { /*NextFunction,*/ Request, Response } from "express";
+
+const unknownEndpointHandler = (request: Request, response: Response): void => {
+    logger.warn(`unknown endpoint ${request.method} ${request.path}`);
+    if (request.body) {
+        logger.debug(`data provided to ${request.path}: ${String(request.body)}`);
+    }
+    response.status(404).json({ error: "endpoint was not found" });
+};
+
+// const requestLogger = (request: Request, _response: Response, next: NextFunction) => {
+//     console.log("Method:", request.method);
+//     console.log("Path:  ", request.path);
+//     console.log("Body:  ", request.body);
+//     console.log("---");
+//     next();
+// };
+
+export { unknownEndpointHandler };

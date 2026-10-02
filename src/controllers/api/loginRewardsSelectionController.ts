@@ -1,0 +1,66 @@
+import { getInventory } from "../../services/inventoryService.ts";
+import {
+    claimLoginReward,
+    getRandomLoginRewards,
+    setAccountGotLoginRewardToday
+} from "../../services/loginRewardService.ts";
+import { getAccountForRequest, getBuildLabel } from "../../services/loginService.ts";
+import { handleStoreItemAcquisition } from "../../services/purchaseService.ts";
+import { sendWsBroadcastTo } from "../../services/wsService.ts";
+import type { IInventoryChanges } from "../../types/purchaseTypes.ts";
+import { logger } from "../../utils/logger.ts";
+import type { RequestHandler } from "express";
+
+export const loginRewardsSelectionController: RequestHandler = async (req, res) => {
+    const account = await getAccountForRequest(req);
+    const buildLabel = getBuildLabel(req, account);
+    const inventory = await getInventory(account._id, undefined);
+    const body = JSON.parse(String(req.body)) as ILoginRewardsSelectionRequest;
+    const isMilestoneDay = account.LoginDays == 5 || account.LoginDays % 50 == 0;
+    if (body.IsMilestoneReward != isMilestoneDay) {
+        logger.warn(`Client disagrees on login milestone (got ${body.IsMilestoneReward}, expected ${isMilestoneDay})`);
+    }
+    let chosenReward;
+    let inventoryChanges: IInventoryChanges;
+    if (body.IsMilestoneReward) {
+        chosenReward = {
+            RewardType: "RT_STORE_ITEM",
+            StoreItemType: body.ChosenReward
+        };
+        inventoryChanges = (await handleStoreItemAcquisition(body.ChosenReward, inventory)).InventoryChanges;
+        if (evergreenRewards.indexOf(body.ChosenReward) == -1) {
+            inventory.LoginMilestoneRewards.push(body.ChosenReward);
+        }
+    } else {
+        const randomRewards = await getRandomLoginRewards(account, inventory, buildLabel);
+        chosenReward = randomRewards.find(x => x.StoreItemType == body.ChosenReward)!;
+        inventoryChanges = await claimLoginReward(account, inventory, chosenReward);
+    }
+    setAccountGotLoginRewardToday(account, inventory);
+    await Promise.all([inventory.save(), account.save()]);
+
+    sendWsBroadcastTo(account._id.toString(), { update_inventory: true });
+    res.json({
+        DailyTributeInfo: {
+            NewInventory: inventoryChanges,
+            ChosenReward: chosenReward
+        }
+    });
+};
+
+interface ILoginRewardsSelectionRequest {
+    ChosenReward: string;
+    IsMilestoneReward: boolean;
+}
+
+const evergreenRewards = [
+    "/Lotus/Types/StoreItems/Packages/EvergreenTripleForma",
+    "/Lotus/Types/StoreItems/Packages/EvergreenTripleRifleRiven",
+    "/Lotus/Types/StoreItems/Packages/EvergreenTripleMeleeRiven",
+    "/Lotus/Types/StoreItems/Packages/EvergreenTripleSecondaryRiven",
+    "/Lotus/Types/StoreItems/Packages/EvergreenWeaponSlots",
+    "/Lotus/Types/StoreItems/Packages/EvergreenKuva",
+    "/Lotus/Types/StoreItems/Packages/EvergreenBoosters",
+    "/Lotus/Types/StoreItems/Packages/EvergreenEndo",
+    "/Lotus/Types/StoreItems/Packages/EvergreenExilus"
+];

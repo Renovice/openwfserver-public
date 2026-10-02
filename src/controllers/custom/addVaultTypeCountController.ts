@@ -1,0 +1,43 @@
+import { getAccountIdForRequest } from "../../services/loginService.ts";
+import type { RequestHandler } from "express";
+import { getGuildForRequest, hasGuildPermission } from "../../services/guildService.ts";
+import { eGuildPermission } from "../../types/guildTypes.ts";
+import type { ITypeCount } from "../../types/commonTypes.ts";
+import { broadcastGuildUpdate } from "../../services/wsService.ts";
+
+export const addVaultTypeCountController: RequestHandler = async (req, res) => {
+    const accountId = await getAccountIdForRequest(req);
+    const { vaultType, items } = req.body as {
+        vaultType: keyof typeof vaultConfig;
+        items: ITypeCount[];
+    };
+    const guild = await getGuildForRequest(req, accountId);
+    if (!(await hasGuildPermission(guild, accountId, vaultConfig[vaultType]))) {
+        res.status(400).send("-1").end();
+        return;
+    }
+    guild[vaultType] ??= [];
+    for (const item of items) {
+        const index = guild[vaultType].findIndex(x => x.ItemType === item.ItemType);
+        if (index === -1) {
+            guild[vaultType].push({
+                ItemType: item.ItemType,
+                ItemCount: item.ItemCount
+            });
+        } else {
+            guild[vaultType][index].ItemCount += item.ItemCount;
+            if (guild[vaultType][index].ItemCount < 1) {
+                guild[vaultType].splice(index, 1);
+            }
+        }
+    }
+
+    await guild.save();
+    res.end();
+    broadcastGuildUpdate(req, guild._id.toString());
+};
+const vaultConfig = {
+    VaultShipDecorations: eGuildPermission.Treasurer,
+    VaultMiscItems: eGuildPermission.Treasurer,
+    VaultDecoRecipes: eGuildPermission.Architect
+} as const;

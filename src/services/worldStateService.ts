@@ -83,6 +83,7 @@ import {
     type IFlashSaleData
 } from "../constants/flashSales.ts";
 import { getGeneratedNightwaveSyndicate } from "./generatedMetadataService.ts";
+import { getAllVarziaManifests, getVarziaManifest, getVarziaRotation } from "./varziaService.ts";
 
 const sortieBosses = [
     "SORTIE_BOSS_HYENA",
@@ -1921,98 +1922,6 @@ const fullyStockBaro = (vt: IVoidTrader, buildVersion: number): void => {
     );
     for (const item of privateBaroExtraStock) pushVoidTraderOffer(vt, item);
     pushMainSyndicateModsToBaro(vt);
-};
-
-const getVarziaRotation = (week: number, buildVersion: number): string => {
-    const seed = new SRng(week).randomInt(0, 100_000);
-    const rng = new SRng(seed);
-    const [itemType, rotation] = rng.randomElement(Object.entries(varzia.primeDualPacks))!;
-    if (buildVersion < rotation.minBuildVersionInt) {
-        return itemType;
-    } else {
-        return "/Lotus/StoreItems/Types/StoreItems/Packages/MegaPrimeVault/LastChanceItemC";
-    }
-};
-
-const getVarziaManifest = (dualPack: string, buildVersion: number): IPrimeVaultTraderOffer[] => {
-    const rotationManifest = varzia.primeDualPacks[dualPack];
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    if (!rotationManifest || buildVersion < rotationManifest.minBuildVersionInt) {
-        return [];
-    }
-    const mainPack = [{ ItemType: dualPack, PrimePrice: 10 }];
-    const singlePacks: IPrimeVaultTraderOffer[] = [];
-    const vanguardRelics: IPrimeVaultTraderOffer[] = [];
-    const items: IPrimeVaultTraderOffer[] = [];
-    const bobbleHeads: IPrimeVaultTraderOffer[] = [];
-
-    if (config.worldState?.vanguardVaultRelics && buildVersion >= gameToBuildVersionInt["41.0.0"]) {
-        vanguardRelics.push(...varzia.vanguardVaultRelics);
-    }
-
-    for (const singlePackType of rotationManifest.SinglePacks) {
-        singlePacks.push({ ItemType: singlePackType, PrimePrice: 6 });
-
-        const sp = varzia.primeSinglePacks[singlePackType];
-        items.push(...sp.Items);
-        sp.BobbleHeads.forEach(bobbleHead => {
-            bobbleHeads.push({ ItemType: bobbleHead, PrimePrice: 1 });
-        });
-    }
-
-    const relics = rotationManifest.Relics.map(relic => ({ ItemType: relic, RegularPrice: 1 }));
-
-    return [singlePacks[0], ...mainPack, singlePacks[1], ...vanguardRelics, ...items, ...bobbleHeads, ...relics];
-};
-
-const getAllVarziaManifests = (buildVersion: number): IPrimeVaultTraderOffer[] => {
-    const dualPacks: IPrimeVaultTraderOffer[] = [];
-    const singlePacks: IPrimeVaultTraderOffer[] = [];
-    const vanguardRelics: IPrimeVaultTraderOffer[] = [];
-    const items: IPrimeVaultTraderOffer[] = [];
-    const bobbleHeads: IPrimeVaultTraderOffer[] = [];
-    const relics: IPrimeVaultTraderOffer[] = [];
-
-    const singlePackSet = new Set<string>();
-    const itemsSet = new Set<string>();
-    const bobbleHeadsSet = new Set<string>();
-
-    if (config.worldState?.vanguardVaultRelics && buildVersion >= gameToBuildVersionInt["41.0.0"]) {
-        vanguardRelics.push(...varzia.vanguardVaultRelics);
-    }
-
-    Object.entries(varzia.primeDualPacks)
-        .filter(([_, dualPack]) => buildVersion >= dualPack.minBuildVersionInt)
-        .forEach(([dualPackItemType, dualPack]) => {
-            dualPacks.push({ ItemType: dualPackItemType, PrimePrice: 10 });
-
-            dualPack.SinglePacks.forEach(singlePackKey => {
-                if (!singlePackSet.has(singlePackKey)) {
-                    singlePackSet.add(singlePackKey);
-                    singlePacks.push({ ItemType: singlePackKey, PrimePrice: 6 });
-                }
-
-                const sp = varzia.primeSinglePacks[singlePackKey];
-
-                sp.Items.forEach(item => {
-                    if (!itemsSet.has(item.ItemType)) {
-                        itemsSet.add(item.ItemType);
-                        items.push(item);
-                    }
-                });
-
-                sp.BobbleHeads.forEach(bobbleHead => {
-                    if (!bobbleHeadsSet.has(bobbleHead)) {
-                        bobbleHeadsSet.add(bobbleHead);
-                        bobbleHeads.push({ ItemType: bobbleHead, PrimePrice: 1 });
-                    }
-                });
-            });
-
-            relics.push(...dualPack.Relics.map(relic => ({ ItemType: relic, RegularPrice: 1 })));
-        });
-
-    return [...dualPacks, ...vanguardRelics, ...singlePacks, ...items, ...bobbleHeads, ...relics];
 };
 
 const getRawVarziaItemType = (itemType: string): string => {
@@ -4843,25 +4752,25 @@ export const getWorldState = (
         }
     }
 
-    const labConquest = getConquest("CT_LAB", week, null);
+    const labConquest = getConquest("CT_LAB", week, null, buildVersion);
     // eta child clock: the Hex Conquest ("Echoes"/1999 weekly) layout follows the eta clock index and its timer
     // follows the clock expiry, so finishing it rolls to next week's run with a fresh countdown -- mirrors the
     // eda/Descents behaviour. (Lab Conquest stays on the wall-clock week.)
     const hexClock = getEventClock("eta", timeMs);
     const hexSeason = (["CST_WINTER", "CST_SPRING", "CST_SUMMER", "CST_FALL"] as const)[hexClock.index % 4];
-    const hexConquest = getConquest("CT_HEX", hexClock.index, hexSeason);
+    const hexConquest = getConquest("CT_HEX", hexClock.index, hexSeason, buildVersion);
     hexConquest.Activation = { $date: { $numberLong: (hexClock.expiryMs - unixTimesInMs.week).toString() } };
     hexConquest.Expiry = { $date: { $numberLong: hexClock.expiryMs.toString() } };
     if (buildVersion >= gameToBuildVersionInt["40.0.0"]) {
         worldState.Conquests = [labConquest, hexConquest];
         if (isBeforeNextExpectedWorldStateRefresh(timeMs, weekEnd)) {
-            worldState.Conquests.push(getConquest("CT_LAB", week, null));
+            worldState.Conquests.push(getConquest("CT_LAB", week, null, buildVersion));
         }
         if (isBeforeNextExpectedWorldStateRefresh(timeMs, hexClock.expiryMs)) {
             const nextHexSeason = (["CST_WINTER", "CST_SPRING", "CST_SUMMER", "CST_FALL"] as const)[
                 (hexClock.index + 1) % 4
             ];
-            const nextHexConquest = getConquest("CT_HEX", hexClock.index + 1, nextHexSeason);
+            const nextHexConquest = getConquest("CT_HEX", hexClock.index + 1, nextHexSeason, buildVersion);
             nextHexConquest.Activation = { $date: { $numberLong: hexClock.expiryMs.toString() } };
             nextHexConquest.Expiry = { $date: { $numberLong: (hexClock.expiryMs + unixTimesInMs.week).toString() } };
             worldState.Conquests.push(nextHexConquest);

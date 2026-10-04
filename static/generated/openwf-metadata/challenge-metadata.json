@@ -2,13 +2,14 @@
   "schemaVersion": 1,
   "module": "challenges",
   "source": {
-    "snapshotId": "d0c66fc45872561a",
-    "executableFileVersion": "2026.09.28.13.06",
-    "packagesSha256": "d0c66fc45872561a164f187449f0d76ce6d6e372550c45eb2178c383304955b6",
-    "tocSha256": "df61d261d4964114559d8c3709632ec189788713dacb364784e23771829aa8d2",
-    "cacheLength": 181957740,
-    "cacheLastWriteUtc": "2026-09-29T06:45:23.3455405Z",
-    "generatedAtUtc": "2026-09-29T07:15:07.341646Z"
+    "snapshotId": "4a43a30de9f972ea",
+    "buildLabel": "2026.09.30.14.45",
+    "executableFileVersion": "2026.09.30.14.45",
+    "packagesSha256": "4a43a30de9f972eaf91223a61a7e785e784400bf316d6395eb6d3018e1a2dd3a",
+    "tocSha256": "a7a5217fa3761f986d6e301edd0b63390b31e2d67bd2df6d71bbb3222963fa83",
+    "cacheLength": 214088722,
+    "cacheLastWriteUtc": "2026-10-04T15:59:20.9682351Z",
+    "generatedAtUtc": "2026-10-04T16:36:00.4994328Z"
   },
   "primaryManifest": {
     "typePath": "/Lotus/Types/Challenges/PrimaryChallengeManifest",
@@ -127130,7 +127131,7 @@
       "typeName": "/Lotus/Types/Items/Titles/RoatheTitles/FrumentariusTitle",
       "storeItem": "/Lotus/StoreItems/Types/Items/Titles/RoatheTitles/FrumentariusTitle",
       "productCategory": "FlavourItems",
-      "localizeTag": "/Lotus/Language/Titles/Frumentarius_MarketTitle"
+      "localizeTag": "/Lotus/Language/Titles/FrumentariusTitle_MarketTitle"
     },
     "/Lotus/Types/Items/Titles/RoatheTitles/NovaTitle": {
       "typeName": "/Lotus/Types/Items/Titles/RoatheTitles/NovaTitle",
@@ -427287,6 +427288,30 @@
         "ShowInMarket": "/Lotus/StoreItems/Types/Items/SongItems/DeimosLoginSongItem"
       }
     },
+    "/Lotus/Types/Items/SongItems/DevourerSongItem": {
+      "typeName": "/Lotus/Types/Items/SongItems/DevourerSongItem",
+      "storeItem": "/Lotus/StoreItems/Types/Items/SongItems/DevourerSongItem",
+      "productCategory": "MiscItems",
+      "localizeTag": "/Lotus/Language/Fragments/DevourerSongName",
+      "categorySourcePath": "/Lotus/StoreItems/Types/Items/SongItems/DevourerSongItem",
+      "localizationSourcePath": "/Lotus/Types/Items/SongItems/DevourerSongItem",
+      "publicExportDatasets": [],
+      "serverRecordSource": "None",
+      "effectiveMetadata": {
+        "Icon": "/Lotus/Interface/Icons/StoreIcons/SongItem/DevourerSongItemStoreIcon.png",
+        "LocalizeDescTag": "/Lotus/Language/Fragments/DevourerSongDesc",
+        "MarketMode": "MM_HIDDEN",
+        "OneTimePurchasable": "1",
+        "ShowInMarket": "0"
+      },
+      "effectiveMetadataSourcePaths": {
+        "Icon": "/Lotus/Types/Items/SongItems/DevourerSongItem",
+        "LocalizeDescTag": "/Lotus/Types/Items/SongItems/DevourerSongItem",
+        "MarketMode": "/Lotus/Types/Items/SongItems/DevourerSongItem",
+        "OneTimePurchasable": "/Lotus/Types/Items/SongItems/DevourerSongItem",
+        "ShowInMarket": "/Lotus/StoreItems/Types/Items/SongItems/DevourerSongItem"
+      }
+    },
     "/Lotus/Types/Items/SongItems/DreadnaughtSongItem": {
       "typeName": "/Lotus/Types/Items/SongItems/DreadnaughtSongItem",
       "storeItem": "/Lotus/StoreItems/Types/Items/SongItems/DreadnaughtSongItem",
@@ -427415,30 +427440,6 @@
         "MarketMode": "/Lotus/Types/Items/SongItems/EmpyreanSongItem",
         "OneTimePurchasable": "/Lotus/Types/Items/SongItems/EmpyreanSongItem",
         "ShowInMarket": "/Lotus/StoreItems/Types/Items/SongItems/EmpyreanSongItem"
-      }
-    },
-    "/Lotus/Types/Items/SongItems/ErisMortemSongItem": {
-      "typeName": "/Lotus/Types/Items/SongItems/ErisMortemSongItem",
-      "storeItem": "/Lotus/StoreItems/Types/Items/SongItems/ErisMortemSongItem",
-      "productCategory": "MiscItems",
-      "localizeTag": "/Lotus/Language/Fragments/ErisMortemSongName",
-      "categorySourcePath": "/Lotus/StoreItems/Types/Items/SongItems/ErisMortemSongItem",
-      "localizationSourcePath": "/Lotus/Types/Items/SongItems/ErisMortemSongItem",
-      "publicExportDatasets": [],
-      "serverRecordSource": "None",
-      "effectiveMetadata": {
-        "Icon": "/Lotus/Interface/Icons/StoreIcons/SongItem/ErisMortemSongItemStoreIcon.png",
-        "LocalizeDescTag": "/Lotus/Language/Fragments/ErisMortemSongDesc",
-        "MarketMode": "MM_HIDDEN",
-        "OneTimePurchasable": "1",
-        "ShowInMarket": "0"
-      },
-      "effectiveMetadataSourcePaths": {
-        "Icon": "/Lotus/Types/Items/SongItems/ErisMortemSongItem",
-        "LocalizeDescTag": "/Lotus/Types/Items/SongItems/ErisMortemSongItem",
-        "MarketMode": "/Lotus/Types/Items/SongItems/ErisMortemSongItem",
-        "OneTimePurchasable": "/Lotus/Types/Items/SongItems/ErisMortemSongItem",
-        "ShowInMarket": "/Lotus/StoreItems/Types/Items/SongItems/ErisMortemSongItem"
       }
     },
     "/Lotus/Types/Items/SongItems/FromTheStarsSongItem": {
@@ -432481,7 +432482,7 @@
       "typeName": "/Lotus/Types/Items/Titles/RoatheTitles/FrumentariusTitle",
       "storeItem": "/Lotus/StoreItems/Types/Items/Titles/RoatheTitles/FrumentariusTitle",
       "productCategory": "FlavourItems",
-      "localizeTag": "/Lotus/Language/Titles/Frumentarius_MarketTitle",
+      "localizeTag": "/Lotus/Language/Titles/FrumentariusTitle_MarketTitle",
       "categorySourcePath": "/Lotus/StoreItems/Types/Items/Titles/RoatheTitles/FrumentariusTitle",
       "localizationSourcePath": "/Lotus/Types/Items/Titles/RoatheTitles/FrumentariusTitle",
       "publicExportDatasets": [
@@ -830853,14 +830854,14 @@
     }
   },
   "itemRegistrySummary": {
-    "decodedTypeCount": 468330,
+    "decodedTypeCount": 468387,
     "storeWrapperCount": 23966,
     "exactPairCount": 23966,
     "admittedCount": 23540,
     "rejectedCount": 426,
     "rejectionSha256": "6d56a65910c6cc8b4ceb04142c1e59f9b22ab97db8b00b20bf59270ad4a4007d",
     "noExplicitServerRecordCount": 7096,
-    "noExplicitServerRecordSha256": "f209c6ec3c6d12726b3fbd330c3bc6fe6bd937a5d77b47c850006cb755b09ff0",
+    "noExplicitServerRecordSha256": "5e1095073a81db7122257a00ffb151a664212ff375063e62bf9bb5e37b1fe3f8",
     "publicExportPackageVersion": "0.6.11",
     "rejectionCounts": {
       "MISSING_ABSOLUTE_LOCALIZATION": 424,

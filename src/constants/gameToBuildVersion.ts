@@ -1,4 +1,6 @@
 const gameToBuildVersion = {
+    // First U44 (Iceblade of Narin) label, as in the bootstrapper's OpenWF/vv/game_versions.json.
+    "44.0.0": "2026.09.22.16.46",
     // Preserve the locally verified Amir's Shockwave executable label alongside upstream versions.
     "43.5.4": "2026.08.19.11.06",
     "43.5.0": "2026.08.11.16.16",

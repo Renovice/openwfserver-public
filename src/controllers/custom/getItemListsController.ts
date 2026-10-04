@@ -39,7 +39,7 @@ import {
 } from "warframe-public-export-plus";
 import { evolutionWeapons, permanentEvolutionWeapons } from "../../constants/evolutionWeapons.ts";
 import supplementalDict from "../../../static/fixed_responses/supplementalDict/index.json" with { type: "json" };
-import varzia from "../../constants/varzia.ts";
+import { getVarziaDualPacks } from "../../services/varziaService.ts";
 import suitDefaultUpgrades from "../../constants/suitDefaultUpgrades.ts";
 import { pseudoRecipeToOwnedRecipeMap } from "../../services/foundryService.ts";
 import { nightwaveTagToSeasonName } from "../../services/worldStateService.ts";
@@ -510,7 +510,7 @@ const getItemListsController: RequestHandler = (req, response) => {
         });
     }
 
-    for (const uniqueName of Object.keys(varzia.primeDualPacks)) {
+    for (const uniqueName of Object.keys(getVarziaDualPacks())) {
         res.VarziaOffers.push({
             uniqueName,
             name: getString(getItemName(uniqueName) || uniqueName, lang)

@@ -2,6 +2,7 @@ import type { TFaction, TMissionType } from "warframe-public-export-plus";
 import type { CalendarSeasonType, IConquest, IConquestMission, TConquestType } from "../types/worldStateTypes.ts";
 import { mixSeeds, SRng } from "./rngService.ts";
 import { EPOCH } from "../constants/timeConstants.ts";
+import gameToBuildVersionInt from "../constants/gameToBuildVersionInt.ts";
 
 const missionAndFactionTypes: Record<TConquestType, Partial<Record<TMissionType, TFaction[]>>> = {
     CT_LAB: {
@@ -378,10 +379,45 @@ const getFrameVariables = (conquestType: TConquestType, time: number): [string, 
     return [frameVariables[i], frameVariables[i + 1], frameVariables[i + 2], frameVariables[i + 3]];
 };
 
+// Hotfix 44.0.1: from the 2026-09-28 weekly reset, each week takes one Personal Modifier from each of four groups.
+// The groups are server data (the client has no group table); the tags are the 25 entries of the client's
+// ConquestLib FRAME_VARIABLE_TAGS (identical for CT_LAB and CT_HEX on 2026.09.30.14.45), matched to the patch-note
+// names through ConquestLib's Tag -> Label table and Languages.bin (work/research/archimedea-modifier-groups-2026-10-04).
+export const personalModifierGroups: readonly (readonly string[])[] = [
+    // Ability Overload, Dropped Guard, Dull Blades, Framecurse Syndrome, Hypersensitive, Knifestep Syndrome,
+    // Low Yield, Secondary Wounds, Undersupplied
+    [
+        "VoidEnergyOverload",
+        "AntiGuard",
+        "DullBlades",
+        "Framecurse",
+        "OverSensitive",
+        "Knifestep",
+        "AoeDebuff",
+        "ContactDamage",
+        "Undersupplied"
+    ],
+    // Abbreviated Abilities, Channeled Greed, Constricted, Energy Exhaustion, Powerless, Shortened Reach
+    ["TimeDilation", "ChannelDrain", "EnergyStarved", "Exhaustion", "AbilityLockout", "RangeDebuff"],
+    // Ammo Deficit, Gear Embargo, No Pets Allowed, Transference Distortion
+    ["Starvation", "Gearless", "NoPets", "OperatorLockout"],
+    // Anemic Shields, Fractured Armor, Infected Wounds, Lethargic Shields, Permanent Injury, Untreatable
+    ["AnemicShields", "Armorless", "InfectedWounds", "ShieldDelay", "DecayingFlesh", "Withering"]
+];
+export const personalModifierGroupsStart = Date.UTC(2026, 8, 28);
+
+const getGroupedFrameVariables = (conquestType: TConquestType, week: number): [string, string, string, string] => {
+    // Own seed (salted with the hotfix number) so the pick does not consume the mission rng of getConquest.
+    const rng = new SRng(mixSeeds(conquestStartingDay[conquestType] + 4401, week));
+    const [a, b, c, d] = personalModifierGroups.map(group => rng.randomElement(group as string[])!);
+    return [a, b, c, d];
+};
+
 export const getConquest = (
     conquestType: TConquestType,
     week: number,
-    season: CalendarSeasonType | null
+    season: CalendarSeasonType | null,
+    buildVersion: number = Number.MAX_SAFE_INTEGER
 ): IConquest => {
     const rng = new SRng(mixSeeds(conquestStartingDay[conquestType], week));
 
@@ -419,7 +455,11 @@ export const getConquest = (
         Expiry: { $date: { $numberLong: weekEnd.toString() } },
         Type: conquestType,
         Missions: missions,
-        Variables: getFrameVariables(conquestType, weekStart),
+        // Clients before 44.0.0 only know the first 19 tags: they keep the pre-groups rule.
+        Variables:
+            weekStart >= personalModifierGroupsStart && buildVersion >= gameToBuildVersionInt["44.0.0"]
+                ? getGroupedFrameVariables(conquestType, week)
+                : getFrameVariables(conquestType, weekStart),
         RandomSeed: rng.randomInt(0, 1_000_000)
     };
 };

@@ -578,10 +578,8 @@ const varzia: IVarzia = {
         "/Lotus/Types/StoreItems/Packages/MegaPrimeVault/MPVHildrynPrimeSinglePack": {
             Items: [
                 { ItemType: "/Lotus/StoreItems/Powersuits/IronFrame/IronFramePrime", PrimePrice: 3 },
-                {
-                    ItemType: "/Lotus/StoreItems/Weapons/Tenno/Archwing/Primary/PrimeLarkspur/PrimeLarkspurWeapon",
-                    PrimePrice: 2
-                },
+                // DE's single pack sells Larkspur Prime with its Gravimag as one bundle (export, 2026-10-04).
+                { ItemType: "/Lotus/Types/StoreItems/Packages/MegaPrimeVault/MPVLarkspurGravimag", PrimePrice: 2 },
                 { ItemType: "/Lotus/StoreItems/Types/Sentinels/SentinelPowersuits/PrimeShadePowerSuit", PrimePrice: 2 },
                 {
                     ItemType: "/Lotus/Types/StoreItems/Packages/MegaPrimeVault/MPVHeimtPrimeSentAccessories",
@@ -603,7 +601,10 @@ const varzia: IVarzia = {
                     ItemType: "/Lotus/Types/StoreItems/Packages/MegaPrimeVault/MPVDopplinePrimeArmorSet",
                     PrimePrice: 2
                 },
-                { ItemType: "/Lotus/StoreItems/Upgrades/Skins/Scarves/PrimeAltraScarf", PrimePrice: 2 }
+                { ItemType: "/Lotus/StoreItems/Upgrades/Skins/Scarves/PrimeAltraScarf", PrimePrice: 2 },
+                // In DE's single pack (export, 2026-10-04); prices by the derivation rule.
+                { ItemType: "/Lotus/StoreItems/Upgrades/Skins/Runner/GaussPrimeAltHelmet", PrimePrice: 1 },
+                { ItemType: "/Lotus/StoreItems/Types/Items/ShipDecos/Plushies/GaussPrimePlush", PrimePrice: 1 }
             ],
             BobbleHeads: ["/Lotus/StoreItems/Types/Items/ShipDecos/GaussPrimeBobbleHead"]
         },

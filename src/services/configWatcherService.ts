@@ -19,7 +19,7 @@ import {
     sendWsBroadcastToWebui,
     type IWsMsgToClient
 } from "./wsService.ts";
-import varzia from "../constants/varzia.ts";
+import { getVarziaDualPacks } from "./varziaService.ts";
 import { getTunablesForClient } from "./tunablesService.ts";
 import { Account } from "../models/loginModel.ts";
 import { Inbox } from "../models/inboxModel.ts";
@@ -186,7 +186,7 @@ export const validateConfig = (): void => {
     }
     if (
         config.worldState?.varziaOverride &&
-        !Object.keys(varzia.primeDualPacks).includes(config.worldState.varziaOverride)
+        !Object.keys(getVarziaDualPacks()).includes(config.worldState.varziaOverride)
     ) {
         config.worldState.varziaOverride = "";
         modified = true;

@@ -12,7 +12,7 @@
     "build-and-start": "npm run build && npm run start",
     "dev": "node scripts/dev.cjs",
     "dev:bun": "bun scripts/dev.cjs",
-    "verify": "tsgo --noEmit && npm run audit:reward-multipliers && npm run audit:pontis-rewards && npm run audit:generated-rewards && npm run audit:generated-items && npm run audit:current-export && npm run audit:riven-splicing && npm run audit:u44-endpoints",
+    "verify": "tsgo --noEmit && npm run audit:reward-multipliers && npm run audit:pontis-rewards && npm run audit:generated-rewards && npm run audit:generated-items && npm run audit:current-export && npm run audit:riven-splicing && npm run audit:u44-endpoints && npm run audit:varzia && npm run audit:conquest-modifiers",
     "verify:tsc": "tsc --noEmit",
     "raw": "node scripts/raw-precheck.js && node --experimental-strip-types src/index.ts",
     "raw:bun": "bun src/index.ts",
@@ -39,7 +39,9 @@
     "fix": "npm run update-translations && npm run knip:fix && npm run prettier",
     "audit:current-export": "node --experimental-strip-types scripts/metadata-audit/audit-current-export.ts",
     "audit:riven-splicing": "node --experimental-strip-types scripts/metadata-audit/audit-riven-splicing.ts",
-    "audit:u44-endpoints": "node --experimental-strip-types scripts/metadata-audit/audit-u44-endpoints.ts"
+    "audit:u44-endpoints": "node --experimental-strip-types scripts/metadata-audit/audit-u44-endpoints.ts",
+    "audit:varzia": "node --experimental-strip-types scripts/metadata-audit/audit-varzia.ts",
+    "audit:conquest-modifiers": "node --experimental-strip-types scripts/metadata-audit/audit-conquest-modifiers.ts"
   },
   "type": "module",
   "dependencies": {

@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "source": {
-    "packagesSha256": "d0c66fc45872561a164f187449f0d76ce6d6e372550c45eb2178c383304955b6",
+    "packagesSha256": "4a43a30de9f972eaf91223a61a7e785e784400bf316d6395eb6d3018e1a2dd3a",
     "files": {
-      "ExportResources_en.json": "85dd649deb1131cfadabf4843889163ca9f67ecc00d6c0d3acd1d3955e5e1b4c",
+      "ExportResources_en.json": "215ea91970f842a3a66c0083b4f8c51740531b99ec060331d0ec06824bf1f839",
       "ExportRecipes_en.json": "c6259273a2e138d0b10e6133ac425d03cf87f6f0beac197fbe56ee8f29fc8ef3",
-      "ExportWarframes_en.json": "3ae70a1085b5cb1ebd2aa97b48701ec1de06c31939640f9ccb90d83288203393",
-      "ExportWeapons_en.json": "12ee5a17ffff9aa91a6b7c9e86856ba6f037a76dba7234e3431aca1e1afd9509",
+      "ExportWarframes_en.json": "0ef3343756482414e2350f4dc87e38af8200e7cd67aa7863f79aa41c811c7250",
+      "ExportWeapons_en.json": "1955923c506d7cec1b7b06abea49648f849780f29ae19fbc96792ac82a97913c",
       "ExportUpgrades_en.json": "f78393906d4ade7cbf66c81d8ef0d47c817ba68491814bf0ad5f5b14638689de",
       "ExportRelicArcane_en.json": "1783c4a3dd100029b26b300e38c553547ee3b1bb9b363f0016b3917c087bff6d",
       "ExportKeys_en.json": "2e19eea8674b464e7ca0bd1344d3808215d9f04dcfbd69706957905875a1b1c8",
-      "weapon_rule.json": "551381158d805f18dbeb1977b6585a29d3ffbb9f492a4fdf528614c8b82c4d94",
+      "weapon_rule.json": "56949b5e87b7af06c41ecd4ecb5409bf0dac804647f420d3220528e201a8964f",
       "riven_market_evidence.json": "5adcc3fb9d72aec8d630f1207309579d9ef1599716fc21b2680e41599f161eaa"
     }
   },
@@ -279,14 +279,14 @@
         "productCategory": "ShipDecorations",
         "platinumCost": 15.0
       },
-      "/Lotus/Types/Items/SongItems/ErisMortemSongItem": {
-        "name": "/Lotus/Language/Fragments/ErisMortemSongName",
-        "description": "/Lotus/Language/Fragments/ErisMortemSongDesc",
+      "/Lotus/Types/Items/SongItems/DevourerSongItem": {
+        "name": "/Lotus/Language/Fragments/DevourerSongName",
+        "description": "/Lotus/Language/Fragments/DevourerSongDesc",
         "codexSecret": false,
         "parentName": "/Lotus/Types/Game/SongItem",
         "excludeFromCodex": true,
         "showInInventory": false,
-        "icon": "/Lotus/Interface/Icons/StoreIcons/SongItem/ErisMortemSongItemStoreIcon.png",
+        "icon": "/Lotus/Interface/Icons/StoreIcons/SongItem/DevourerSongItemStoreIcon.png",
         "productCategory": "MiscItems"
       },
       "/Lotus/Types/Items/SongItems/IceSpeakerSongItem": {
@@ -3526,8 +3526,8 @@
     "/Lotus/Language/ShipDecorations/Movember2026SiriusOrionDesc": "A Movember Display of Sirius and Orion, created by Community artist Veroz.",
     "/Lotus/Language/Tarot/TarotCardNarinName": "Narin Prex",
     "/Lotus/Language/Tarot/TarotCardNarinDesc": "The Iceblade Everlasting",
-    "/Lotus/Language/Fragments/ErisMortemSongName": "Eris Mortem",
-    "/Lotus/Language/Fragments/ErisMortemSongDesc": "A Requiem for an Infested moon to enjoy from the Somachord in your Orbiter.",
+    "/Lotus/Language/Fragments/DevourerSongName": "Devourer",
+    "/Lotus/Language/Fragments/DevourerSongDesc": "A Requiem for an Infested moon to enjoy from the Somachord in your Orbiter.",
     "/Lotus/Language/Fragments/IceSpeakerSongName": "Ice Speaker",
     "/Lotus/Language/Fragments/IceSpeakerSongDesc": "Iceblade of Narin music to enjoy from the Somachord in your Orbiter.",
     "/Lotus/Language/Fragments/NeotesDanceSongName": "Neote's Dance",
@@ -3578,7 +3578,7 @@
     "/Lotus/Language/Iceblade/DuelistAbilityLeapName": "Hakchum",
     "/Lotus/Language/Iceblade/DuelistAbilityLeapDesc": "Tap to leap into the air, tap again to land at target location. Applies <DT_FREEZE_COLOR> Cold Damage Vulnerability and Status Effect in a large radius upon landing.\r\n\r\nGain Ice for each enemy hit.",
     "/Lotus/Language/Iceblade/DuelistAbilityBladedanceName": "Nurinarim",
-    "/Lotus/Language/Iceblade/DuelistAbilityBladedanceDesc": "Requires full Ice to cast. An ancestral spirit descends upon Narin and she begins sword dancing for continuous nearby damage. Press Attack on the marked targets to launch shattering icy slashes that deplete Armor and Shields. Hitting Frozen enemies causes them to explode, dealing massive radial <DT_FREEZE_COLOR> Cold Damage.",
+    "/Lotus/Language/Iceblade/DuelistAbilityBladedanceDesc": "Requires full Ice to cast. An ancestral spirit descends upon Narin and she begins sword dancing for continuous nearby damage. Press Attack to launch shattering icy slashes that deplete Armor and Shields. Hitting Frozen enemies causes them to explode, dealing massive radial <DT_FREEZE_COLOR> Cold Damage. Attacks on Marked Targets cost no Ice and do more damage.",
     "/Lotus/Language/Iceblade/DuelistPistolsName": "Aksondol",
     "/Lotus/Language/Iceblade/DuelistPistolsDesc": "Narin's signature pistols strike with winter's bite. Reloading sends out a chilling pulse that inflicts Cold Status Effect, the pulse's range increases with each round reloaded.",
     "/Lotus/Language/Primes/PrimeSteflosShotgunName": "Steflos Prime",
@@ -5162,25 +5162,6 @@
             {
               "value": 0.0049999999,
               "locTag": "/Lotus/Language/Upgrades/WeaponFactionDamageScaldraDesc",
-              "reverseValueSymbol": false
-            }
-          ]
-        },
-        {
-          "tag": "WeaponStatusDamage",
-          "canBeBuff": true,
-          "canBeCurse": true,
-          "isAdvancedTrait": true,
-          "buffRestrictions": [],
-          "curseRestrictions": [],
-          "damageType": "DT_ANY",
-          "compatibilityTags": [],
-          "prefixTag": "/Lotus/Language/Omega/StatusDamagePrefix",
-          "suffixTag": "/Lotus/Language/Omega/StatusDamageSuffix",
-          "upgradeValues": [
-            {
-              "value": 0.0099999998,
-              "locTag": "/Lotus/Language/Upgrades/WeaponStatusDamage",
               "reverseValueSymbol": false
             }
           ]

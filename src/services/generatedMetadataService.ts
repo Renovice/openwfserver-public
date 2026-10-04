@@ -107,6 +107,7 @@ interface IGeneratedDojoRecipes {
 
 type TGeneratedMetadata = {
     schemaVersion: number;
+    source?: { executableFileVersion?: string };
     generatedNightwaveSyndicates?: Record<string, IGeneratedNightwaveDefinition>;
     generatedVendors?: Record<string, IGeneratedVendor>;
     generatedSyndicateFavours?: Record<string, IGeneratedSyndicateFavours>;
@@ -130,6 +131,8 @@ export const generatedBundles = metadata.generatedBundles ?? {};
 export const generatedCosmetics = metadata.generatedCosmetics ?? {};
 export const generatedItems = metadata.generatedItems ?? {};
 export const itemRegistrySummary = metadata.itemRegistrySummary;
+/** Client build (e.g. 2026.09.30.14.45) the generated metadata was produced from. */
+export const generatedClientBuildVersion = metadata.source?.executableFileVersion;
 
 export const getGeneratedNightwaveDefinition = (tag: string): IGeneratedNightwaveDefinition | undefined =>
     generatedNightwaveSyndicates[tag];
